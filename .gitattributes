@@ -1,0 +1,16 @@
+# Normalize line endings for text so checkouts are consistent across OSes
+# and Git stops warning about LF->CRLF conversion.
+*.py    text eol=lf
+*.js    text eol=lf
+*.html  text eol=lf
+*.md    text eol=lf
+*.json  text eol=lf
+*.inf   text
+*.txt   text
+
+# Driver payload is binary — never convert, never try to diff.
+*.exe   binary
+*.dll   binary
+*.sys   binary
+*.cat   binary
+*.zip   binary

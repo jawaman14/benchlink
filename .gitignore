@@ -4,6 +4,10 @@
 # Redundant archive — duplicates the loose driver files already tracked
 DM3068_USB_driver.zip
 
+# Python bytecode cache
+__pycache__/
+*.pyc
+
 # OS / editor cruft
 Thumbs.db
 .DS_Store
