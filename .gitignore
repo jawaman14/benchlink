@@ -1,0 +1,9 @@
+# Local Claude Code permissions (machine-specific)
+.claude/settings.local.json
+
+# Redundant archive — duplicates the loose driver files already tracked
+DM3068_USB_driver.zip
+
+# OS / editor cruft
+Thumbs.db
+.DS_Store

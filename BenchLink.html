@@ -1,0 +1,3281 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>window.__resources = {};</script>
+<script>
+// GENERATED from dc-runtime/src/*.ts — do not edit. Rebuild with `cd dc-runtime && bun run build`.
+"use strict";
+(() => {
+  var __defProp = Object.defineProperty;
+  var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
+  var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
+
+  // src/react.ts
+  function getReact() {
+    const R = window.React;
+    if (!R) throw new Error("dc-runtime: window.React is not available yet");
+    return R;
+  }
+  function getReactDOM() {
+    const RD = window.ReactDOM;
+    if (!RD) throw new Error("dc-runtime: window.ReactDOM is not available yet");
+    return RD;
+  }
+  var h = ((...args) => getReact().createElement(
+    ...args
+  ));
+
+  // src/parse.ts
+  function parseDcDocument(doc) {
+    const dc = doc.querySelector("x-dc");
+    if (!dc) return null;
+    const scriptEl = doc.querySelector("script[data-dc-script]");
+    const { props, preview } = parseDataProps(
+      scriptEl?.getAttribute("data-props") ?? null
+    );
+    return {
+      template: dc.innerHTML,
+      js: scriptEl ? scriptEl.textContent || "" : "",
+      props,
+      preview
+    };
+  }
+  function parseDcText(src) {
+    const openMatch = /<x-dc(?:\s[^>]*)?>/.exec(src);
+    if (!openMatch) return null;
+    const close = src.lastIndexOf("</x-dc>");
+    if (close === -1 || close < openMatch.index) return null;
+    const template = src.slice(openMatch.index + openMatch[0].length, close);
+    const doc = new DOMParser().parseFromString(src, "text/html");
+    const scriptEl = doc.querySelector("script[data-dc-script]");
+    const { props, preview } = parseDataProps(
+      scriptEl?.getAttribute("data-props") ?? null
+    );
+    return {
+      template,
+      js: scriptEl ? scriptEl.textContent || "" : "",
+      props,
+      preview
+    };
+  }
+  function parseDataProps(raw) {
+    if (!raw) return { props: null, preview: null };
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return { props: null, preview: null };
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { props: null, preview: null };
+    }
+    const obj = parsed;
+    const preview = obj.$preview && typeof obj.$preview === "object" ? obj.$preview : null;
+    const rest = {};
+    for (const k of Object.keys(obj)) {
+      if (k[0] !== "$") rest[k] = obj[k];
+    }
+    return { props: Object.keys(rest).length ? rest : null, preview };
+  }
+  function dcNameFromPath(pathname) {
+    let p = pathname || "";
+    try {
+      p = decodeURIComponent(p);
+    } catch {
+    }
+    const base = p.split("/").pop() || "Root";
+    return base.replace(/\.dc\.html$/, "").replace(/\.html?$/, "") || "Root";
+  }
+
+  // src/boot.ts
+  var BASE_CSS = `
+    .sc-placeholder{background:color-mix(in srgb,currentColor 8%,transparent);
+      border:1px solid color-mix(in srgb,currentColor 50%,transparent);
+      border-radius:2px;box-sizing:border-box;overflow:hidden}
+    @keyframes sc-shine{0%{background-position:100% 50%}100%{background-position:0% 50%}}
+    html.sc-dc-streaming .sc-placeholder,
+    html.sc-dc-streaming .sc-interp.sc-missing{position:relative;
+      background:color-mix(in srgb,currentColor 5%,transparent);
+      border-color:transparent}
+    html.sc-dc-streaming .sc-placeholder::before,
+    html.sc-dc-streaming .sc-interp.sc-missing::before{content:'';
+      position:absolute;inset:0;pointer-events:none;
+      background:linear-gradient(90deg,rgba(217,119,87,0) 25%,rgba(247,225,211,.95) 37%,rgba(217,119,87,0) 63%);
+      background-size:400% 100%;animation:sc-shine 1.4s ease infinite}
+    html.sc-dc-streaming .sc-placeholder:nth-child(n+9 of .sc-placeholder)::before,
+    html.sc-dc-streaming .sc-interp.sc-missing:nth-child(n+9 of .sc-interp.sc-missing)::before{animation:none;
+      background:color-mix(in srgb,currentColor 8%,transparent)}
+    .sc-placeholder-error{padding:4px 8px;font:11px/1.4 ui-monospace,monospace;
+      color:color-mix(in srgb,currentColor 70%,transparent);word-break:break-word}
+    .sc-interp.sc-missing{display:inline-block;width:2em;height:1em;overflow:hidden;
+      vertical-align:text-bottom;background:rgba(255,255,255,.3);border:1px solid rgba(0,0,0,.5);
+      border-radius:2px;box-sizing:border-box;color:transparent;
+      user-select:none}
+    .sc-interp.sc-unresolved{font-family:ui-monospace,monospace;font-size:.85em;
+      color:color-mix(in srgb,currentColor 50%,transparent);
+      background:color-mix(in srgb,currentColor 10%,transparent);border-radius:3px;
+      padding:0 3px}
+    .sc-host.sc-has-error{position:relative}
+    .sc-logic-error{position:absolute;top:8px;left:8px;z-index:2147483647;max-width:60ch;
+      padding:6px 10px;background:#b00020;color:#fff;font:12px/1.4 ui-monospace,monospace;
+      border-radius:4px;white-space:pre-wrap;pointer-events:none}
+    /* Mirrors PRINT_BASELINE_CSS in apps/web deck-stage-export.ts \u2014 keep both
+       in sync until dc-runtime regains a build step. */
+    @media print {
+      @page { margin: 0.5cm; }
+      figure, table { break-inside: avoid; }
+      #dc-root, #dc-root > .sc-host { height: auto; }
+      *, *::before, *::after {
+        print-color-adjust: exact; -webkit-print-color-adjust: exact;
+        backdrop-filter: none !important; -webkit-backdrop-filter: none !important;
+        animation-delay: -99s !important; animation-duration: .001s !important;
+        animation-iteration-count: 1 !important; animation-fill-mode: both !important;
+        animation-play-state: running !important; transition-duration: 0s !important;
+      }
+    }
+  `;
+  var FULL_PAGE_CSS = "html,body{height:100%;margin:0}#dc-root,#dc-root>.sc-host{height:100%}";
+  function rootNameForDocument(doc, loc) {
+    let bootPath = loc.pathname || "";
+    if (!/\.dc\.html?$/i.test(safeDecode(bootPath))) {
+      try {
+        bootPath = new URL(doc.baseURI || "/").pathname;
+      } catch {
+      }
+    }
+    return dcNameFromPath(bootPath);
+  }
+  function safeDecode(s) {
+    try {
+      return decodeURIComponent(s);
+    } catch {
+      return s;
+    }
+  }
+  function boot(runtime, doc = document) {
+    const parsed = parseDcDocument(doc);
+    if (!parsed) return null;
+    const React = getReact();
+    const rootName = rootNameForDocument(doc, location);
+    runtime.markFetched(rootName);
+    runtime.setRootName(rootName);
+    runtime.adoptParsed(rootName, parsed);
+    if (!window.__resources) {
+      fetch(location.href).then((res) => res.ok ? res.text() : "").then((t) => {
+        const raw = t ? parseDcText(t) : null;
+        if (raw?.template) runtime.updateHtml(rootName, raw.template);
+      }).catch(() => {
+      });
+    }
+    const dc = doc.querySelector("x-dc");
+    const hostEl = doc.createElement("div");
+    hostEl.id = "dc-root";
+    dc.replaceWith(hostEl);
+    if (!parsed.preview) {
+      const s = doc.createElement("style");
+      s.textContent = FULL_PAGE_CSS;
+      doc.head.appendChild(s);
+    }
+    const Root = runtime.getDC(rootName);
+    const entry = runtime.registry.get(rootName);
+    function StandaloneRoot() {
+      const [, setTick] = React.useState(0);
+      React.useEffect(() => {
+        const sub = () => setTick((n) => n + 1);
+        entry.subs.add(sub);
+        return () => {
+          entry.subs.delete(sub);
+        };
+      }, []);
+      const defaults = React.useMemo(() => {
+        const d = {};
+        for (const k in entry.propsMeta || {}) {
+          const v = entry.propsMeta?.[k]?.default;
+          if (v !== void 0) d[k] = v;
+        }
+        return d;
+      }, [entry.propsMeta]);
+      return h(Root, { ...defaults, ...entry.propOverrides || {} });
+    }
+    const ReactDOM = getReactDOM();
+    if (ReactDOM.createRoot)
+      ReactDOM.createRoot(hostEl).render(h(StandaloneRoot));
+    else ReactDOM.render(h(StandaloneRoot), hostEl);
+    return rootName;
+  }
+
+  // src/expr.ts
+  var IDENT_RE = /^[A-Za-z_$][A-Za-z0-9_$]*/;
+  var NUMBER_RE = /^-?\d+(\.\d+)?$/;
+  function resolve(vals, src) {
+    const expr = String(src).trim();
+    if (!expr) return void 0;
+    if (expr[0] === "(" && expr[expr.length - 1] === ")" && parensWrapWhole(expr)) {
+      return resolve(vals, expr.slice(1, -1));
+    }
+    const eq = findTopLevelEquality(expr);
+    if (eq) {
+      const lv = resolve(vals, expr.slice(0, eq.index));
+      const rv = resolve(vals, expr.slice(eq.index + eq.op.length));
+      switch (eq.op) {
+        case "===":
+          return lv === rv;
+        case "!==":
+          return lv !== rv;
+        case "==":
+          return lv == rv;
+        default:
+          return lv != rv;
+      }
+    }
+    if (expr[0] === "!") return !resolve(vals, expr.slice(1));
+    if (expr === "true") return true;
+    if (expr === "false") return false;
+    if (expr === "null") return null;
+    if (expr === "undefined") return void 0;
+    if (NUMBER_RE.test(expr)) return Number(expr);
+    if (expr.length >= 2 && (expr[0] === '"' || expr[0] === "'") && expr[expr.length - 1] === expr[0]) {
+      return expr.slice(1, -1);
+    }
+    return resolvePath(vals, expr);
+  }
+  function parensWrapWhole(expr) {
+    let depth = 0;
+    for (let i = 0; i < expr.length - 1; i++) {
+      if (expr[i] === "(") depth++;
+      else if (expr[i] === ")") {
+        depth--;
+        if (depth === 0) return false;
+      }
+    }
+    return true;
+  }
+  function findTopLevelEquality(expr) {
+    let depth = 0;
+    for (let i = 0; i < expr.length; i++) {
+      const c = expr[i];
+      if (c === "[" || c === "(") depth++;
+      else if (c === "]" || c === ")") depth--;
+      else if (depth === 0 && (c === "=" || c === "!") && expr[i + 1] === "=") {
+        if (i > 0 && (expr[i - 1] === "=" || expr[i - 1] === "!")) continue;
+        if (!expr.slice(0, i).trim()) continue;
+        const op = expr[i + 2] === "=" ? c + "==" : c + "=";
+        return { index: i, op };
+      }
+    }
+    return null;
+  }
+  function resolvePath(vals, expr) {
+    const head = expr.match(IDENT_RE);
+    if (!head) return void 0;
+    let cur = vals == null ? void 0 : vals[head[0]];
+    let i = head[0].length;
+    while (i < expr.length) {
+      if (expr[i] === ".") {
+        const m = expr.slice(i + 1).match(IDENT_RE) || expr.slice(i + 1).match(/^\d+/);
+        if (!m) return void 0;
+        cur = cur == null ? void 0 : cur[m[0]];
+        i += 1 + m[0].length;
+      } else if (expr[i] === "[") {
+        let depth = 1;
+        let j = i + 1;
+        while (j < expr.length && depth > 0) {
+          if (expr[j] === "[") depth++;
+          else if (expr[j] === "]") {
+            depth--;
+            if (depth === 0) break;
+          }
+          j++;
+        }
+        if (depth !== 0) return void 0;
+        const key = resolve(vals, expr.slice(i + 1, j));
+        cur = cur == null ? void 0 : cur[key];
+        i = j + 1;
+      } else {
+        return void 0;
+      }
+    }
+    return cur;
+  }
+
+  // src/encode.ts
+  var CAMEL_ATTR = "sc-camel-";
+  var INLINE_TEXT_TAGS = new Set(
+    "a abbr b bdi bdo br cite code del dfn em i ins kbd mark q s samp small span strike strong sub sup u var wbr".split(
+      " "
+    )
+  );
+  var RAW_WRAP = {
+    select: "sc-raw-select",
+    table: "sc-raw-table",
+    tbody: "sc-raw-tbody",
+    thead: "sc-raw-thead",
+    tfoot: "sc-raw-tfoot",
+    tr: "sc-raw-tr",
+    td: "sc-raw-td",
+    th: "sc-raw-th",
+    caption: "sc-raw-caption"
+  };
+  var RAW_UNWRAP = Object.fromEntries(
+    Object.entries(RAW_WRAP).map(([k, v]) => [v, k])
+  );
+  var EVENT_MAP = {
+    onclick: "onClick",
+    onchange: "onChange",
+    oninput: "onInput",
+    onsubmit: "onSubmit",
+    onkeydown: "onKeyDown",
+    onkeyup: "onKeyUp",
+    onkeypress: "onKeyPress",
+    onmousedown: "onMouseDown",
+    onmouseup: "onMouseUp",
+    onmouseenter: "onMouseEnter",
+    onmouseleave: "onMouseLeave",
+    onfocus: "onFocus",
+    onblur: "onBlur",
+    ondoubleclick: "onDoubleClick",
+    oncontextmenu: "onContextMenu",
+    onmousemove: "onMouseMove",
+    onmouseover: "onMouseOver",
+    onmouseout: "onMouseOut",
+    onpointerdown: "onPointerDown",
+    onpointerup: "onPointerUp",
+    onpointermove: "onPointerMove",
+    onpointerenter: "onPointerEnter",
+    onpointerleave: "onPointerLeave",
+    onpointercancel: "onPointerCancel",
+    onpointerover: "onPointerOver",
+    onpointerout: "onPointerOut",
+    ongotpointercapture: "onGotPointerCapture",
+    onlostpointercapture: "onLostPointerCapture",
+    ontouchstart: "onTouchStart",
+    ontouchend: "onTouchEnd",
+    ontouchmove: "onTouchMove",
+    ontouchcancel: "onTouchCancel",
+    ondragstart: "onDragStart",
+    ondragend: "onDragEnd",
+    ondragenter: "onDragEnter",
+    ondragleave: "onDragLeave",
+    ondragover: "onDragOver",
+    onanimationstart: "onAnimationStart",
+    onanimationend: "onAnimationEnd",
+    onanimationiteration: "onAnimationIteration",
+    ontransitionend: "onTransitionEnd"
+  };
+  var ATTRS = `(?:[^>"']|"[^"]*"|'[^']*')*`;
+  var IMPORT_SELF_CLOSE_RE = new RegExp(
+    "<(x-import|dc-import)(" + ATTRS + ")/>",
+    "gi"
+  );
+  var CAMEL_ATTR_RE = /(\s)([a-z]+[A-Z][A-Za-z0-9]*)(\s*=)/g;
+  function encodeCamelAttrs(html) {
+    return html.replace(
+      CAMEL_ATTR_RE,
+      (_, sp, name, eq) => sp + CAMEL_ATTR + name.replace(/[A-Z]/g, (c) => "-" + c.toLowerCase()) + eq
+    );
+  }
+  function encodeCase(html) {
+    html = html.replace(
+      IMPORT_SELF_CLOSE_RE,
+      (_, t, a) => "<" + t + a + "></" + t + ">"
+    );
+    html = html.replace(/<helmet(\s|>)/gi, "<sc-helmet$1");
+    html = html.replace(/<\/helmet\s*>/gi, "</sc-helmet>");
+    html = encodeCamelAttrs(html);
+    for (const [real, alias] of Object.entries(RAW_WRAP)) {
+      html = html.replace(
+        new RegExp("(</?)" + real + "(?=[\\s>])", "gi"),
+        "$1" + alias
+      );
+    }
+    return html;
+  }
+  function kebabToCamel(s) {
+    return s.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+  }
+  function cssToObj(css) {
+    const o = {};
+    for (const decl of css.split(";")) {
+      const i = decl.indexOf(":");
+      if (i < 0) continue;
+      const prop = decl.slice(0, i).trim();
+      o[prop.startsWith("--") ? prop : kebabToCamel(prop)] = decl.slice(i + 1).trim();
+    }
+    return o;
+  }
+  function compileAttr(raw) {
+    const whole = raw.match(/^\s*\{\{([\s\S]+?)\}\}\s*$/);
+    if (whole) {
+      const path = whole[1];
+      return (vals) => resolve(vals, path);
+    }
+    if (raw.includes("{{")) {
+      const parts = raw.split(/\{\{([\s\S]+?)\}\}/g);
+      return (vals) => parts.map((s, i) => i & 1 ? resolve(vals, s) ?? "" : s).join("");
+    }
+    return () => raw;
+  }
+
+  // src/compile.ts
+  function collectProps(node, kind, host) {
+    const propGetters = [];
+    const pseudoClasses = [];
+    let hintSize = null;
+    for (const { name, value } of [...node.attributes]) {
+      if (name === "sc-name" || name === "data-dc-tpl") continue;
+      let key = name;
+      if (key.startsWith(CAMEL_ATTR))
+        key = kebabToCamel(key.slice(CAMEL_ATTR.length));
+      if (key === "hint-size") {
+        hintSize = value;
+        continue;
+      }
+      if (key.startsWith("style-")) {
+        pseudoClasses.push(host.pseudoClass(key.slice(6), value));
+        continue;
+      }
+      if (kind !== "dom") {
+        if (key.includes("-") && !(kind === "x-import" && (key.startsWith("aria-") || key.startsWith("data-"))))
+          key = kebabToCamel(key);
+      } else {
+        if (key === "class") key = "className";
+        else if (key === "for") key = "htmlFor";
+        else if (key.startsWith("on"))
+          key = EVENT_MAP[key] || "on" + key[2].toUpperCase() + key.slice(3);
+      }
+      propGetters.push([key, compileAttr(value)]);
+    }
+    return { propGetters, pseudoClasses, hintSize };
+  }
+  var HOST_STYLE_PROPS = /* @__PURE__ */ new Set([
+    "position",
+    "left",
+    "right",
+    "top",
+    "bottom",
+    "inset",
+    "width",
+    "height",
+    "z-index",
+    "transform"
+  ]);
+  function hostPositionStyle(style) {
+    const all = typeof style === "string" ? cssToObj(style) : style != null && typeof style === "object" ? style : null;
+    if (!all) return void 0;
+    const out = {};
+    for (const [k, v] of Object.entries(all)) {
+      const kebab = k.replace(/[A-Z]/g, (c) => "-" + c.toLowerCase());
+      if (HOST_STYLE_PROPS.has(kebab)) out[k] = v;
+    }
+    return Object.keys(out).length ? out : void 0;
+  }
+  function compileTemplate(html, host) {
+    const tpl = document.createElement("template");
+    //! nosemgrep: direct-inner-html-assignment
+    tpl.innerHTML = encodeCase(html);
+    let tplN = 0;
+    (function stamp(node) {
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        node.setAttribute("data-dc-tpl", String(tplN++));
+      }
+      for (const c of node.childNodes) stamp(c);
+    })(tpl.content);
+    const builders = walkChildren(tpl.content, host);
+    const render = ((vals, ctx) => builders.map((b, i) => b(vals || {}, ctx, i)));
+    render.__annotated = tpl.innerHTML;
+    return render;
+  }
+  function walkChildren(node, host) {
+    return [...node.childNodes].map((c) => walk(c, host)).filter((b) => b != null);
+  }
+  function walk(node, host) {
+    if (node.nodeType === Node.TEXT_NODE) return walkText(node);
+    if (node.nodeType !== Node.ELEMENT_NODE) return null;
+    const el = node;
+    const tag = el.tagName.toLowerCase();
+    if (tag === "sc-for") return walkFor(el, host);
+    if (tag === "sc-if") return walkIf(el, host);
+    if (tag === "x-import") return walkXImport(el, host);
+    if (tag === "sc-helmet") return host.helmet(el);
+    if (tag === "dc-import") return walkComponent(el, host);
+    return walkElement(el, host);
+  }
+  var warnedHoles = /* @__PURE__ */ new Set();
+  function warnUnresolved(ctx, what) {
+    const key = (ctx?.__name || "?") + "\0" + what;
+    if (warnedHoles.has(key)) return;
+    warnedHoles.add(key);
+    console.warn("[dc-runtime] " + (ctx?.__name || "template") + ": " + what);
+  }
+  function walkText(node) {
+    const txt = node.nodeValue ?? "";
+    if (!txt.includes("{{")) {
+      if (!txt.trim() && !txt.includes(" ")) return null;
+      return () => txt;
+    }
+    const parts = txt.split(/\{\{([\s\S]+?)\}\}/g);
+    return (vals, ctx, key) => h(
+      getReact().Fragment,
+      { key },
+      ...parts.map((p, i) => {
+        if (!(i & 1)) return p;
+        const v = resolve(vals, p);
+        if (v === void 0) {
+          if (!ctx?.__streamingNow) {
+            if (document.body?.hasAttribute("data-dc-editor-on")) {
+              return h(
+                "span",
+                { key: i, className: "sc-interp sc-unresolved" },
+                "{{ " + p.trim() + " }}"
+              );
+            }
+            warnUnresolved(
+              ctx,
+              "{{ " + p.trim() + " }} never resolved \u2014 rendered as empty"
+            );
+            return null;
+          }
+          return h(
+            "span",
+            { key: i, className: "sc-interp sc-missing" },
+            p.trim()
+          );
+        }
+        if (getReact().isValidElement(v) || Array.isArray(v)) {
+          return h(getReact().Fragment, { key: i }, v);
+        }
+        if (v === null || typeof v === "boolean") return null;
+        return h("span", { key: i, className: "sc-interp" }, String(v));
+      })
+    );
+  }
+  function walkFor(el, host) {
+    const listGet = compileAttr(el.getAttribute("list") || "");
+    const asName = el.getAttribute("as") || "item";
+    const hintN = parseInt(el.getAttribute("hint-placeholder-count") || "0", 10);
+    const kids = walkChildren(el, host);
+    const listSrc = el.getAttribute("list") || "";
+    return (vals, ctx, key) => {
+      let list = listGet(vals);
+      if (!Array.isArray(list)) {
+        if (!ctx?.__streamingNow) {
+          if (list !== void 0 && list !== null) {
+            warnUnresolved(
+              ctx,
+              'sc-for list="' + listSrc + '" is not an array (' + typeof list + ")"
+            );
+          }
+          list = [];
+        } else {
+          list = hintN > 0 ? Array(hintN).fill(void 0) : [];
+        }
+      }
+      return h(
+        getReact().Fragment,
+        { key },
+        list.map((item, i) => {
+          const sub = { ...vals, [asName]: item, $index: i };
+          return h(
+            getReact().Fragment,
+            { key: i },
+            kids.map((b, j) => b(sub, ctx, j))
+          );
+        })
+      );
+    };
+  }
+  function walkIf(el, host) {
+    const valGet = compileAttr(el.getAttribute("value") || "");
+    const hintRaw = el.getAttribute("hint-placeholder-val");
+    const hintGet = hintRaw != null ? compileAttr(hintRaw) : null;
+    const kids = walkChildren(el, host);
+    return (vals, ctx, key) => {
+      let v = valGet(vals);
+      if (v === void 0 && hintGet && ctx?.__streamingNow) v = hintGet(vals);
+      return v ? h(
+        getReact().Fragment,
+        { key },
+        kids.map((b, j) => b(vals, ctx, j))
+      ) : null;
+    };
+  }
+  function walkComponent(el, host) {
+    const name = el.getAttribute("name") || el.getAttribute("component") || "";
+    el.removeAttribute("name");
+    el.removeAttribute("component");
+    const tplId = el.getAttribute("data-dc-tpl");
+    const styleRaw = el.getAttribute("style");
+    el.removeAttribute("style");
+    const styleGet = styleRaw != null ? compileAttr(styleRaw) : null;
+    const { propGetters, hintSize } = collectProps(el, "dc-import", host);
+    const kids = walkChildren(el, host);
+    return (vals, ctx, key) => {
+      const props = {
+        key,
+        __hintSize: hintSize,
+        __tplId: tplId,
+        __hostStyle: styleGet ? hostPositionStyle(styleGet(vals)) : void 0
+      };
+      for (const [k, g] of propGetters) {
+        const v = g(vals);
+        if (k === "dcProps") {
+          if (v && typeof v === "object") Object.assign(props, v);
+          continue;
+        }
+        props[k] = v;
+      }
+      if (kids.length) props.children = kids.map((b, j) => b(vals, ctx, j));
+      return h(host.component(name), props);
+    };
+  }
+  function walkXImport(el, host) {
+    const globalNameGet = compileAttr(
+      el.getAttribute("component-from-global-scope") || ""
+    );
+    const exportNameGet = compileAttr(
+      el.getAttribute("component") || el.getAttribute("name") || ""
+    );
+    const fromRaw = el.getAttribute("from") || (el.getAttribute("component-from-global-scope") ? "" : el.getAttribute("src") || el.getAttribute("import") || "");
+    const urls = fromRaw.trim() ? fromRaw.trim().split(/\s+/) : [];
+    const url = urls.length ? urls[urls.length - 1] : "";
+    const kindOf = (u) => /\.(jsx|tsx)(\?|#|$)/i.test(u) ? "jsx" : "js";
+    const tplId = el.getAttribute("data-dc-tpl");
+    const styleRaw = el.getAttribute("style");
+    el.removeAttribute("style");
+    const styleGet = styleRaw != null ? compileAttr(styleRaw) : null;
+    const wrap = tplId != null || styleGet != null;
+    const { propGetters, hintSize } = collectProps(el, "x-import", host);
+    const hasContent = el.children.length > 0 || !!(el.textContent || "").trim();
+    const kids = hasContent ? walkChildren(el, host) : [];
+    const urlBindable = fromRaw.includes("{{");
+    if (urls.length && !urlBindable) {
+      let prev;
+      for (const u of urls) prev = host.loadExternal(kindOf(u), u, prev);
+    }
+    const evalName = (g, vals) => {
+      const v = g(vals);
+      const s = v == null ? "" : String(v);
+      return s.includes("{{") ? "" : s;
+    };
+    return (vals, ctx, key) => {
+      const globalName = evalName(globalNameGet, vals);
+      const name = globalName || evalName(exportNameGet, vals);
+      const C = !name || urlBindable ? null : globalName ? host.resolveExternalGlobal(url, globalName) : host.resolveExternal(url, name);
+      const hostStyle = styleGet ? hostPositionStyle(styleGet(vals)) : void 0;
+      const wrapper = wrap ? {
+        key,
+        className: "sc-host-x",
+        "data-dc-tpl": tplId,
+        style: hostStyle || { display: "contents" }
+      } : null;
+      if (!C) {
+        const error = urlBindable ? "x-import `from` cannot contain {{ \u2026 }} \u2014 module URLs are resolved at parse time; use a literal URL" : host.resolveExternalError(url, name);
+        const ph = host.placeholder({
+          key: wrapper ? void 0 : key,
+          name,
+          hintSize,
+          error
+        });
+        return wrapper ? h("div", wrapper, ph) : ph;
+      }
+      const props = wrapper ? {} : { key };
+      let unresolvedHole = false;
+      for (const [k, g] of propGetters) {
+        if (k === "component" || k === "componentFromGlobalScope" || k === "from") {
+          continue;
+        }
+        const v = g(vals);
+        if (v === void 0) unresolvedHole = true;
+        if (k === "dcProps") {
+          if (v && typeof v === "object") Object.assign(props, v);
+          continue;
+        }
+        props[k] = v;
+      }
+      if (unresolvedHole && ctx?.__htmlStreamingNow) {
+        const ph = host.placeholder({
+          key: wrapper ? void 0 : key,
+          name,
+          hintSize,
+          error: null
+        });
+        return wrapper ? h("div", wrapper, ph) : ph;
+      }
+      if (kids.length) props.children = kids.map((b, j) => b(vals, ctx, j));
+      return wrapper ? h("div", wrapper, h(C, props)) : h(C, props);
+    };
+  }
+  function contentKey(el) {
+    const clone = el.cloneNode(true);
+    for (const d of clone.querySelectorAll("*")) {
+      while (d.attributes.length) d.removeAttribute(d.attributes[0].name);
+    }
+    const s = clone.innerHTML;
+    let h2 = 5381;
+    for (let i = 0; i < s.length; i++) h2 = (h2 << 5) + h2 + s.charCodeAt(i) | 0;
+    return s.length + "." + (h2 >>> 0).toString(36);
+  }
+  var NEVER_CONTENT_KEYED = new Set(
+    "script style textarea option title select canvas iframe video audio".split(
+      " "
+    )
+  );
+  var NOT_INLINE_SELECTOR = ":not(" + [...INLINE_TEXT_TAGS].join(",") + ")";
+  function walkElement(el, host) {
+    const realTag = RAW_UNWRAP[el.localName] || el.localName;
+    const tplId = el.getAttribute("data-dc-tpl");
+    const inlineOnly = el.childNodes.length > 0 && !NEVER_CONTENT_KEYED.has(realTag) && el.querySelector(NOT_INLINE_SELECTOR) === null;
+    const keySuffix = inlineOnly ? "|" + contentKey(el) : "";
+    const { propGetters, pseudoClasses } = collectProps(el, "dom", host);
+    const kids = walkChildren(el, host);
+    return (vals, ctx, key) => {
+      const props = {
+        key: key + keySuffix,
+        "data-dc-tpl": tplId
+      };
+      for (const [k, g] of propGetters) {
+        let v = g(vals);
+        if (k === "style" && typeof v === "string") v = cssToObj(v);
+        if ((k === "value" || k === "checked") && v === void 0) {
+          v = k === "checked" ? false : "";
+        }
+        props[k] = v;
+      }
+      if (pseudoClasses.length) {
+        props.className = [props.className, ...pseudoClasses].filter(Boolean).join(" ");
+      }
+      return h(realTag, props, ...kids.map((b, j) => b(vals, ctx, j)));
+    };
+  }
+
+  // src/logic.ts
+  var StreamableLogic = class {
+    constructor(props) {
+      __publicField(this, "props");
+      __publicField(this, "state", {});
+      /** Back-pointer to the wrapper component, installed after construction. */
+      __publicField(this, "__host");
+      this.props = props || {};
+    }
+    setState(update, cb) {
+      this.__host && this.__host.__setLogicState(update, cb);
+    }
+    forceUpdate() {
+      this.__host && this.__host.forceUpdate();
+    }
+    componentDidMount() {
+    }
+    componentDidUpdate(_prevProps) {
+    }
+    componentWillUnmount() {
+    }
+    /** The flat object the template renders against (merged over props). */
+    renderVals() {
+      return {};
+    }
+  };
+  function evalDcLogic(src) {
+    //! nosemgrep: eval-and-function-constructor
+    const fn = new Function(
+      "DCLogic",
+      "StreamableLogic",
+      "React",
+      src + '\n;return (typeof Component!=="undefined"&&Component)||undefined;'
+    );
+    return fn(StreamableLogic, StreamableLogic, getReact());
+  }
+
+  // src/component.ts
+  function shallowEqual(a, b) {
+    if (!b) return false;
+    const ak = Object.keys(a).filter((k) => k !== "children");
+    const bk = Object.keys(b).filter((k) => k !== "children");
+    if (ak.length !== bk.length) return false;
+    for (const k of ak) if (a[k] !== b[k]) return false;
+    return true;
+  }
+  function Placeholder({
+    name,
+    hintSize,
+    streaming,
+    error
+  }) {
+    const [w, hgt] = (hintSize || "100%,60px").split(",");
+    return h(
+      "div",
+      {
+        className: "sc-placeholder" + (streaming ? " sc-streaming" : ""),
+        style: { width: w.trim(), height: hgt && hgt.trim() },
+        title: name
+      },
+      error ? h(
+        "div",
+        { className: "sc-placeholder-error" },
+        (name ? name + ": " : "") + error
+      ) : null
+    );
+  }
+  function hintToMin(hint) {
+    if (!hint) return void 0;
+    const [w, hgt] = hint.split(",");
+    return { minWidth: w.trim(), minHeight: hgt && hgt.trim() };
+  }
+  function createComponentFactory(registry, ensureFetched) {
+    const React = getReact();
+    const AncestorContext = React.createContext([]);
+    class StreamableComponent extends React.Component {
+      constructor(props) {
+        super(props);
+        __publicField(this, "__name");
+        __publicField(this, "__sub");
+        __publicField(this, "__needsDidMount", false);
+        /** Snapshot of the registry's streaming flags taken at render time —
+         *  builders read it off the RenderCtx (this) to pick placeholder vs
+         *  render-nothing for unresolved values. */
+        __publicField(this, "__streamingNow", false);
+        __publicField(this, "__htmlStreamingNow", false);
+        /** When a construct throws, remember the (class, registry.ver, props)
+         *  triple so render-time reconcile doesn't re-attempt it on every parent
+         *  re-render. A registry bump (new class, template, external module
+         *  resolving via bumpAll) changes `ver` and breaks the memo so an
+         *  env-dependent constructor can self-heal. */
+        __publicField(this, "__failedLogic", null);
+        __publicField(this, "__failedUserProps", null);
+        __publicField(this, "__failedVer", -1);
+        /** Per-instance constructor error — kept here (not on the registry entry)
+         *  so one instance's successful construct can't hide a sibling's failure,
+         *  and a construct can never wipe an eval error `updateJs` recorded on
+         *  `r.logicError`. */
+        __publicField(this, "__ctorError", null);
+        __publicField(this, "logic");
+        this.__name = props.__name;
+        this.state = { __v: 0, __err: null };
+        this.__sub = () => {
+          if (this.state.__err) this.setState({ __err: null });
+          this.forceUpdate();
+        };
+        this.__makeLogic(registry.get(this.__name).Logic, null);
+        ensureFetched(this.__name);
+      }
+      /** Error-boundary hook: a render crash anywhere in this DC's subtree
+       *  (its own template, an x-import'd component, a child DC without its
+       *  own deeper boundary) lands here instead of unmounting the page. */
+      static getDerivedStateFromError(e) {
+        return { __err: e instanceof Error && e.message ? e.message : String(e) };
+      }
+      componentDidCatch(e, info) {
+        console.error(
+          "[dc-runtime] render error in <" + this.__name + ">:",
+          e,
+          info?.componentStack || ""
+        );
+      }
+      /** Instantiate the logic class (or the no-op base) and adopt `prevState`
+       *  over its initial state — used both at mount and on hot-swap. */
+      __makeLogic(Logic, prevState) {
+        const L = Logic || StreamableLogic;
+        try {
+          this.logic = new L(this.__userProps());
+          this.__failedLogic = null;
+          this.__failedUserProps = null;
+          this.__ctorError = null;
+        } catch (e) {
+          console.error(e);
+          this.__failedLogic = Logic;
+          this.__failedUserProps = this.__userProps();
+          this.__failedVer = registry.get(this.__name).ver;
+          this.__ctorError = this.__name + ": " + (e instanceof Error && e.message ? e.message : String(e));
+          this.logic = new StreamableLogic(
+            this.__userProps()
+          );
+        }
+        this.logic.__host = this;
+        if (prevState)
+          this.logic.state = { ...this.logic.state || {}, ...prevState };
+      }
+      /** The props the author's logic + template see — internal __-prefixed
+       *  wiring stripped. */
+      __userProps() {
+        const { __name, __hintSize, __tplId, __hostStyle, ...rest } = this.props;
+        return rest;
+      }
+      __setLogicState(update, cb) {
+        const prev = this.logic.state;
+        const patch = typeof update === "function" ? update(prev) : update;
+        this.logic.state = { ...prev, ...patch };
+        this.setState((s) => ({ __v: s.__v + 1 }), cb);
+      }
+      /** Swap the logic instance when the registry's Logic class changed
+       *  (streaming completion, hot reload). State carries over; didMount
+       *  re-fires after the swap commits so refs exist. */
+      __reconcileLogic() {
+        const r = registry.get(this.__name);
+        const Next = r.Logic;
+        const Cur = this.logic.constructor;
+        if (Next === Cur || !Next && Cur === StreamableLogic || Next === this.__failedLogic && r.ver === this.__failedVer && shallowEqual(this.__userProps(), this.__failedUserProps)) {
+          return;
+        }
+        if (!this.__needsDidMount) {
+          try {
+            this.logic.componentWillUnmount();
+          } catch (e) {
+            console.error(e);
+          }
+        }
+        this.__makeLogic(Next, this.logic.state);
+        this.__needsDidMount = true;
+      }
+      componentDidMount() {
+        registry.get(this.__name).subs.add(this.__sub);
+        try {
+          this.logic.componentDidMount();
+        } catch (e) {
+          console.error(e);
+        }
+      }
+      componentDidUpdate(prevProps) {
+        this.logic.props = this.__userProps();
+        if (this.__needsDidMount) {
+          if (this.state.__err || !registry.get(this.__name).tpl) return;
+          this.__needsDidMount = false;
+          try {
+            this.logic.componentDidMount();
+          } catch (e) {
+            console.error(e);
+          }
+        } else {
+          try {
+            this.logic.componentDidUpdate(prevProps);
+          } catch (e) {
+            console.error(e);
+          }
+        }
+      }
+      componentWillUnmount() {
+        registry.get(this.__name).subs.delete(this.__sub);
+        if (!this.__needsDidMount) {
+          try {
+            this.logic.componentWillUnmount();
+          } catch (e) {
+            console.error(e);
+          }
+        }
+      }
+      render() {
+        const r = registry.get(this.__name);
+        const cls = "sc-host" + (r.htmlStreaming ? " sc-streaming-html" : "") + (r.jsStreaming ? " sc-streaming-js" : "");
+        const hintStyle = r.htmlStreaming ? hintToMin(this.props.__hintSize) : void 0;
+        const hostStyle = this.props.__hostStyle || hintStyle ? { ...hintStyle || {}, ...this.props.__hostStyle || {} } : void 0;
+        const hostBase = {
+          className: cls,
+          style: hostStyle,
+          "data-sc-name": this.__name,
+          "data-dc-tpl": this.props.__tplId
+        };
+        const chain = Array.isArray(this.context) ? this.context : [];
+        if (chain.includes(this.__name)) {
+          const cycle = [
+            ...chain.slice(chain.indexOf(this.__name)),
+            this.__name
+          ].join(" \u2192 ");
+          return h(
+            "div",
+            { ...hostBase, className: cls + " sc-has-error" },
+            h(Placeholder, {
+              name: this.__name,
+              hintSize: this.props.__hintSize,
+              error: "circular import: " + cycle
+            })
+          );
+        }
+        if (this.state.__err) {
+          return h(
+            "div",
+            { ...hostBase, className: cls + " sc-has-error" },
+            h(
+              "div",
+              { className: "sc-logic-error", "data-omelette-chrome": "" },
+              this.__name + ": " + this.state.__err
+            ),
+            h(Placeholder, {
+              name: this.__name,
+              hintSize: this.props.__hintSize,
+              error: this.state.__err
+            })
+          );
+        }
+        this.__reconcileLogic();
+        if (!r.tpl) {
+          return h(
+            "div",
+            hostBase,
+            h(Placeholder, { name: this.__name, hintSize: this.props.__hintSize })
+          );
+        }
+        const userProps = this.__userProps();
+        this.logic.props = userProps;
+        let vals = userProps;
+        let renderErr = r.logicError || this.__ctorError;
+        try {
+          vals = { ...userProps, ...this.logic.renderVals() || {} };
+        } catch (e) {
+          console.error(e);
+          renderErr = this.__name + ".renderVals(): " + (e instanceof Error && e.message ? e.message : String(e));
+        }
+        this.__streamingNow = !!(r.htmlStreaming || r.jsStreaming);
+        this.__htmlStreamingNow = !!r.htmlStreaming;
+        return h(
+          "div",
+          { ...hostBase, className: cls + (renderErr ? " sc-has-error" : "") },
+          renderErr && h(
+            "div",
+            { className: "sc-logic-error", "data-omelette-chrome": "" },
+            renderErr
+          ),
+          h(
+            AncestorContext.Provider,
+            { value: [...chain, this.__name] },
+            r.tpl(vals, this)
+          )
+        );
+      }
+    }
+    __publicField(StreamableComponent, "contextType", AncestorContext);
+    const named = /* @__PURE__ */ new Map();
+    function getDC(name) {
+      const hit = named.get(name);
+      if (hit) return hit;
+      function Dispatcher(p) {
+        const [, setTick] = React.useState(0);
+        React.useEffect(() => {
+          const sub = () => setTick((n) => n + 1);
+          registry.get(name).subs.add(sub);
+          return () => {
+            registry.get(name).subs.delete(sub);
+          };
+        }, []);
+        ensureFetched(name);
+        return h(StreamableComponent, { ...p, __name: name });
+      }
+      Dispatcher.displayName = name;
+      named.set(name, Dispatcher);
+      return Dispatcher;
+    }
+    return {
+      getDC,
+      StreamableComponent
+    };
+  }
+
+  // src/bundled.ts
+  function bundledBlob(url) {
+    const blobs = window.__resourceBlobs;
+    const b = blobs ? blobs[url.split("#")[0]] : void 0;
+    return b instanceof Blob ? b : null;
+  }
+
+  // src/cdn.ts
+  var REACT_URL = "https://unpkg.com/react@18.3.1/umd/react.production.min.js";
+  var REACT_SRI = "sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z";
+  var REACT_DOM_URL = "https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js";
+  var REACT_DOM_SRI = "sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1";
+  var BABEL_URL = "https://unpkg.com/@babel/standalone@7.29.0/babel.min.js";
+  var BABEL_SRI = "sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y";
+  function cdnScriptFor(url, sri) {
+    const res = window.__resources;
+    const v = res ? res[url] : void 0;
+    return typeof v === "string" && v ? { src: v } : { src: url, integrity: sri };
+  }
+
+  // src/external.ts
+  var isCustomElementName = (n) => !n.includes(".") && n.includes("-");
+  function isRenderableType(g) {
+    if (typeof g === "function") return !isElementClass(g);
+    return typeof g === "object" && g !== null && typeof g.$$typeof === "symbol";
+  }
+  function resolveDottedPath(root, name) {
+    let cur = root;
+    for (const seg of name.split(".")) {
+      if (cur == null) return void 0;
+      cur = cur[seg];
+    }
+    return cur;
+  }
+  var GLOBAL_POLL_INTERVAL_MS = 50;
+  var GLOBAL_POLL_TIMEOUT_MS = 3e4;
+  function createExternalModules(onResolved) {
+    const cache = /* @__PURE__ */ new Map();
+    let babelLoading = null;
+    const reportedMissing = /* @__PURE__ */ new Map();
+    const polling = /* @__PURE__ */ new Set();
+    function ensureBabel() {
+      if (window.Babel) return Promise.resolve();
+      if (babelLoading) return babelLoading;
+      const babel = cdnScriptFor(BABEL_URL, BABEL_SRI);
+      babelLoading = new Promise((res, rej) => {
+        const s = document.createElement("script");
+        s.src = babel.src;
+        if (babel.integrity) {
+          s.integrity = babel.integrity;
+          s.crossOrigin = "anonymous";
+        }
+        s.onload = () => res();
+        s.onerror = rej;
+        document.head.appendChild(s);
+      });
+      return babelLoading;
+    }
+    const pending = /* @__PURE__ */ new Map();
+    function load(kind, url, after) {
+      const existing = pending.get(url);
+      if (existing) return existing;
+      cache.set(url, null);
+      console.info("[dc-runtime] x-import: loading", url, "(" + kind + ")");
+      const ready = Promise.all([
+        kind === "jsx" ? ensureBabel() : Promise.resolve(),
+        after ?? Promise.resolve()
+      ]);
+      const p = ready.then(() => {
+        const pre = bundledBlob(url);
+        if (pre) return pre.text();
+        return fetch(url).then((r) => {
+          if (!r.ok) throw new Error("HTTP " + r.status);
+          return r.text();
+        });
+      }).then((src) => {
+        const code = kind === "jsx" ? window.Babel.transform(src, {
+          filename: url,
+          presets: ["react", "typescript"]
+        }).code : src;
+        const module = { exports: {} };
+        const before = new Set(Object.keys(window));
+        //! nosemgrep: eval-and-function-constructor
+        new Function("React", "module", "exports", "require", code)(
+          getReact(),
+          module,
+          module.exports,
+          () => ({})
+        );
+        const globals = {};
+        for (const k of Object.keys(window)) {
+          if (!before.has(k) && typeof window[k] === "function") {
+            globals[k] = window[k];
+          }
+        }
+        cache.set(url, { mod: module.exports, globals });
+        console.info(
+          "[dc-runtime] x-import: loaded",
+          url,
+          "\u2014 exports:",
+          Object.keys(module.exports),
+          "window globals:",
+          Object.keys(globals)
+        );
+        onResolved();
+      }).catch((e) => {
+        cache.set(url, {
+          mod: {},
+          globals: {},
+          error: "failed to load: " + (e instanceof Error && e.message ? e.message : String(e))
+        });
+        console.error(
+          "[dc-runtime] x-import: FAILED to load",
+          url,
+          "(" + kind + ")",
+          e
+        );
+        onResolved();
+      });
+      pending.set(url, p);
+      return p;
+    }
+    function resolve2(url, name) {
+      const entry = cache.get(url);
+      if (!entry) return null;
+      const { mod, globals } = entry;
+      const C = mod && mod[name] || globals && globals[name] || typeof window !== "undefined" && window[name] || mod && mod.default;
+      if (typeof C === "function") return C;
+      const key = url + "\0" + name;
+      if (!reportedMissing.has(key)) {
+        reportedMissing.set(
+          key,
+          entry.error || 'no export named "' + name + '" (has: ' + Object.keys(mod).join(", ") + ")"
+        );
+        console.error(
+          "[dc-runtime] x-import: module",
+          url,
+          "loaded but has no component named",
+          JSON.stringify(name),
+          "\u2014 available exports:",
+          Object.keys(mod),
+          "window globals:",
+          Object.keys(globals),
+          ". The module must `module.exports = {" + name + "}` or set `window." + name + "`."
+        );
+      }
+      return null;
+    }
+    function waitForGlobal(name) {
+      if (polling.has(name)) return;
+      polling.add(name);
+      const started = Date.now();
+      const isCE = isCustomElementName(name);
+      const tick = () => {
+        const found = isCE ? customElements.get(name) : isRenderableType(resolveDottedPath(window, name));
+        if (found) {
+          polling.delete(name);
+          onResolved();
+          return;
+        }
+        if (Date.now() - started >= GLOBAL_POLL_TIMEOUT_MS) {
+          console.warn(
+            "[dc-runtime] x-import: global",
+            JSON.stringify(name),
+            "never appeared on window after " + GLOBAL_POLL_TIMEOUT_MS + "ms"
+          );
+          return;
+        }
+        setTimeout(tick, GLOBAL_POLL_INTERVAL_MS);
+      };
+      setTimeout(tick, GLOBAL_POLL_INTERVAL_MS);
+    }
+    function resolveGlobal(url, name) {
+      const isCE = isCustomElementName(name);
+      if (!url) {
+        if (isCE) {
+          if (customElements.get(name)) return name;
+          waitForGlobal(name);
+          return null;
+        }
+        const g2 = resolveDottedPath(window, name);
+        if (isRenderableType(g2)) return g2;
+        waitForGlobal(name);
+        return null;
+      }
+      const entry = cache.get(url);
+      if (!entry) return null;
+      if (isCE && customElements.get(name)) return name;
+      const g = entry.globals[name] ?? resolveDottedPath(window, name);
+      if (isRenderableType(g)) return g;
+      if (name.includes(".")) return null;
+      const key = url + "\0global\0" + name;
+      if (!reportedMissing.has(key)) {
+        reportedMissing.set(key, null);
+        if (isCE && !customElements.get(name)) {
+          console.warn(
+            "[dc-runtime] x-import:",
+            url,
+            "loaded but no custom element",
+            JSON.stringify(name),
+            "is registered and window." + name + " is not a function \u2014 rendering <" + name + "> as an unknown element."
+          );
+        }
+      }
+      return name;
+    }
+    function getError(url, name) {
+      const entry = cache.get(url);
+      if (entry?.error) return entry.error;
+      return reportedMissing.get(url + "\0" + name) || null;
+    }
+    return { load, resolve: resolve2, resolveGlobal, getError };
+  }
+  function isElementClass(g) {
+    try {
+      return typeof g === "function" && typeof HTMLElement !== "undefined" && g.prototype instanceof HTMLElement;
+    } catch {
+      return false;
+    }
+  }
+
+  // src/atomics.ts
+  var ATOMIC_CSS = (
+    // layout
+    ".fx{display:flex}.col{display:flex;flex-direction:column}.grid{display:grid}.ac{align-items:center}.jc{justify-content:center}.jb{justify-content:space-between}.f1{flex:1}.noshrink{flex-shrink:0}.wrap{flex-wrap:wrap}.fw5{font-weight:500}.fw6{font-weight:600}.fw7{font-weight:700}.fw8{font-weight:800}.fs11{font-size:11px}.fs12{font-size:12px}.fs13{font-size:13px}.fs14{font-size:14px}.fs15{font-size:15px}.fs16{font-size:16px}.fs20{font-size:20px}.fs22{font-size:22px}.upper{text-transform:uppercase}.tc{text-align:center}.nowrap{white-space:nowrap}.gap8{gap:8px}.gap10{gap:10px}.gap12{gap:12px}.gap16{gap:16px}.gap24{gap:24px}.m0{margin:0}.mt8{margin-top:8px}.mt12{margin-top:12px}.mt16{margin-top:16px}.mb8{margin-bottom:8px}.mb12{margin-bottom:12px}.mb16{margin-bottom:16px}.posrel{position:relative}.posabs{position:absolute}.round{border-radius:50%}.ohide{overflow:hidden}.bbox{box-sizing:border-box}.pointer{cursor:pointer}.w100{width:100%}.b0{border:none}"
+  );
+
+  // src/helmet.ts
+  var DESIGN_DOC_MODE_RE = /<meta\b[^>]*\bname\s*=\s*["']design_doc_mode["'][^>]*\b(?:content|value)\s*=\s*["'](\w+)["']/i;
+  var CANVAS_BG_LIGHT = "#f0eee6";
+  var CANVAS_BG_DARK = "#2e2c26";
+  function createHelmetManager(doc, isStreaming) {
+    const mounted = /* @__PURE__ */ new Set();
+    const live = /* @__PURE__ */ new Map();
+    let designDocMode = null;
+    let canvasStyleEl = null;
+    let appTheme = "light";
+    try {
+      const ds = doc.documentElement.dataset.theme;
+      appTheme = ds === "dark" || ds === "light" ? ds : new URLSearchParams(doc.defaultView?.location.search ?? "").get(
+        "theme"
+      ) === "dark" ? "dark" : "light";
+    } catch {
+    }
+    function applyCanvasBg() {
+      if (!canvasStyleEl) return;
+      const bg = appTheme === "dark" ? CANVAS_BG_DARK : CANVAS_BG_LIGHT;
+      canvasStyleEl.textContent = `html,body{background:${bg}}#dc-root>.sc-host{position:relative}`;
+    }
+    function postDesignMode(mode) {
+      if (window.parent === window) return;
+      try {
+        window.parent.postMessage({ type: "__dc_design_mode", mode }, "*");
+      } catch {
+      }
+    }
+    function setDesignDocMode(mode) {
+      if (mode === designDocMode) return;
+      designDocMode = mode;
+      postDesignMode(mode);
+      if (mode === "canvas") {
+        doc.documentElement.setAttribute("data-dc-canvas", "");
+        canvasStyleEl = doc.createElement("style");
+        canvasStyleEl.setAttribute("data-dc-canvas", "");
+        applyCanvasBg();
+        doc.head.appendChild(canvasStyleEl);
+      } else {
+        doc.documentElement.removeAttribute("data-dc-canvas");
+        canvasStyleEl?.remove();
+        canvasStyleEl = null;
+      }
+    }
+    window.addEventListener("message", (e) => {
+      const type = e.data && e.data.type;
+      if (type === "__dc_theme") {
+        const t = e.data.theme;
+        if (t === "light" || t === "dark") {
+          appTheme = t;
+          applyCanvasBg();
+        }
+        return;
+      }
+      if (!designDocMode || type !== "__dc_probe") return;
+      postDesignMode(designDocMode);
+    });
+    function compile(node) {
+      const raw = [...node.children];
+      const helmetClosed = node.nextSibling != null || node.parentNode?.nextSibling != null;
+      if (node.hasAttribute("data-dc-atomics") && !mounted.has("__dc-atomics")) {
+        mounted.add("__dc-atomics");
+        const el = doc.createElement("style");
+        el.id = "__dc-atomics";
+        el.textContent = ATOMIC_CSS;
+        doc.head.appendChild(el);
+      }
+      return (_vals, ctx) => {
+        const name = ctx && ctx.__name || "";
+        const streaming = !!(name && isStreaming(name));
+        for (let i = 0; i < raw.length; i++) {
+          const child = raw[i];
+          const tag = child.tagName;
+          const mayBePartial = streaming && !helmetClosed && i === raw.length - 1;
+          if (tag === "SCRIPT") {
+            if (mayBePartial) continue;
+            const key = "SCRIPT|" + (child.getAttribute("src") || child.textContent || "");
+            if (mounted.has(key)) continue;
+            mounted.add(key);
+            const el = doc.createElement("script");
+            for (const { name: an, value } of [...child.attributes])
+              el.setAttribute(an, value);
+            if (child.textContent) el.textContent = child.textContent;
+            doc.head.appendChild(el);
+          } else if (tag === "LINK" || tag === "META") {
+            if (mayBePartial) continue;
+            const key = tag + "|" + (child.getAttribute("href") || child.getAttribute("src") || child.outerHTML);
+            if (mounted.has(key)) continue;
+            mounted.add(key);
+            if (tag === "LINK") {
+              const rel = (child.getAttribute("rel") || "").toLowerCase().split(/\s+/);
+              const href = (child.getAttribute("href") || "").trim();
+              const res = window.__resources;
+              const pre = res && rel.includes("stylesheet") && !rel.includes("alternate") ? res[href] : void 0;
+              const blob = typeof pre === "string" && pre ? bundledBlob(pre) : null;
+              if (blob) {
+                const el = doc.createElement("style");
+                if (child.hasAttribute("disabled")) {
+                  el.setAttribute("media", "not all");
+                } else if (child.getAttribute("media")) {
+                  el.setAttribute("media", child.getAttribute("media"));
+                }
+                if (child.getAttribute("title"))
+                  el.setAttribute("title", child.getAttribute("title"));
+                void blob.text().then((css) => {
+                  el.textContent = css;
+                });
+                doc.head.appendChild(el);
+                continue;
+              }
+            }
+            doc.head.appendChild(child.cloneNode(true));
+          } else {
+            const key = name + "|" + i;
+            let el = live.get(key);
+            if (!el || el.tagName !== tag) {
+              if (el) el.remove();
+              el = doc.createElement(tag.toLowerCase());
+              live.set(key, el);
+              doc.head.appendChild(el);
+            }
+            for (const { name: an, value } of [...child.attributes]) {
+              if (el.getAttribute(an) !== value) el.setAttribute(an, value);
+            }
+            if (el.textContent !== child.textContent)
+              el.textContent = child.textContent;
+          }
+        }
+        return null;
+      };
+    }
+    return { compile, setDesignDocMode };
+  }
+
+  // src/pseudo.ts
+  function scanUnquotedUrl(css, i) {
+    if (css[i] !== "u" && css[i] !== "U" || css.slice(i, i + 4).toLowerCase() !== "url(" || /[a-z0-9_-]/i.test(css[i - 1] ?? "")) {
+      return -1;
+    }
+    let j = i + 4;
+    while (j < css.length && /\s/.test(css[j])) j++;
+    if (css[j] === '"' || css[j] === "'") return -1;
+    while (j < css.length && css[j] !== ")") {
+      if (css[j] === "\\") j++;
+      j++;
+    }
+    return j < css.length ? j + 1 : css.length;
+  }
+  function stripComments(css) {
+    let out = "";
+    let quote = "";
+    for (let i = 0; i < css.length; i++) {
+      const c = css[i];
+      if (quote) {
+        if (c === "\\") {
+          out += c + (css[i + 1] ?? "");
+          i++;
+          continue;
+        }
+        if (c === quote) quote = "";
+        out += c;
+      } else if (c === "'" || c === '"') {
+        quote = c;
+        out += c;
+      } else if (c === "/" && css[i + 1] === "*") {
+        const end = css.indexOf("*/", i + 2);
+        i = end === -1 ? css.length : end + 1;
+        out += " ";
+      } else {
+        const end = scanUnquotedUrl(css, i);
+        if (end === -1) out += c;
+        else {
+          out += css.slice(i, end);
+          i = end - 1;
+        }
+      }
+    }
+    return out;
+  }
+  function importantify(css) {
+    css = stripComments(css);
+    const decls = [];
+    let start = 0;
+    let depth = 0;
+    let quote = "";
+    for (let i = 0; i < css.length; i++) {
+      const c = css[i];
+      if (quote) {
+        if (c === "\\") i++;
+        else if (c === quote) quote = "";
+      } else if (c === "'" || c === '"') quote = c;
+      else if (c === "(") depth++;
+      else if (c === ")") depth = Math.max(0, depth - 1);
+      else if (c === ";" && depth === 0) {
+        decls.push(css.slice(start, i));
+        start = i + 1;
+      } else {
+        const end = scanUnquotedUrl(css, i);
+        if (end !== -1) i = end - 1;
+      }
+    }
+    decls.push(css.slice(start));
+    return decls.map((d) => d.trim()).filter(Boolean).map((d) => /!\s*important$/i.test(d) ? d : d + " !important").join(";");
+  }
+  function createPseudoSheet(doc) {
+    let el = null;
+    const cache = /* @__PURE__ */ new Map();
+    let n = 0;
+    return (pseudo, css) => {
+      const k = pseudo + "|" + css;
+      const hit = cache.get(k);
+      if (hit) return hit;
+      if (!el) {
+        el = doc.createElement("style");
+        doc.head.appendChild(el);
+      }
+      const cls = "scp" + (n++).toString(36);
+      const isPseudoElement = pseudo === "before" || pseudo === "after";
+      const sel = isPseudoElement ? "." + cls + "::" + pseudo : "." + cls + ":" + pseudo;
+      el.sheet.insertRule(
+        sel + "{" + (isPseudoElement ? css : importantify(css)) + "}",
+        el.sheet.cssRules.length
+      );
+      cache.set(k, cls);
+      return cls;
+    };
+  }
+
+  // src/registry.ts
+  function createRegistry() {
+    const entries = /* @__PURE__ */ Object.create(null);
+    function get(name) {
+      return entries[name] || (entries[name] = {
+        html: "",
+        tpl: null,
+        Logic: null,
+        jsStreaming: false,
+        htmlStreaming: false,
+        ver: 0,
+        subs: /* @__PURE__ */ new Set(),
+        fetched: false
+      });
+    }
+    function bump(name) {
+      const r = get(name);
+      r.ver++;
+      for (const fn of r.subs) fn();
+    }
+    return {
+      entries,
+      get,
+      bump,
+      bumpAll() {
+        for (const n in entries) bump(n);
+      }
+    };
+  }
+
+  // src/runtime.ts
+  var COMPONENT_DIR = ".";
+  function createRuntime(doc = document) {
+    const registry = createRegistry();
+    const pseudoClass = createPseudoSheet(doc);
+    const helmet = createHelmetManager(
+      doc,
+      (name) => registry.get(name).htmlStreaming
+    );
+    const external = createExternalModules(() => registry.bumpAll());
+    const factory = createComponentFactory(registry, ensureFetched);
+    const host = {
+      component: (name) => factory.getDC(name),
+      placeholder: (props) => h(Placeholder, props),
+      helmet: (node) => helmet.compile(node),
+      loadExternal: (kind, url, after) => external.load(kind, url, after),
+      resolveExternal: (url, name) => external.resolve(url, name),
+      resolveExternalGlobal: (url, name) => external.resolveGlobal(url, name),
+      resolveExternalError: (url, name) => external.getError(url, name),
+      pseudoClass
+    };
+    function ensureFetched(name) {
+      const r = registry.get(name);
+      if (r.fetched) return;
+      r.fetched = true;
+      const url = COMPONENT_DIR + "/" + encodeURIComponent(name) + ".dc.html";
+      const res = window.__resources;
+      const pre = res ? res[url] : void 0;
+      const target = typeof pre === "string" && pre ? pre : url;
+      const blob = bundledBlob(target);
+      (blob ? blob.text() : fetch(target).then((res2) => {
+        if (!res2.ok) {
+          console.error(
+            '[dc-runtime] sibling fetch for "' + name + '" failed:',
+            url,
+            "returned",
+            res2.status,
+            "\u2014 the reference renders as an empty placeholder."
+          );
+          return "";
+        }
+        return res2.text();
+      })).then((t) => {
+        if (!t) return;
+        const parsed = parseDcText(t);
+        if (!parsed) {
+          console.error(
+            '[dc-runtime] sibling fetch for "' + name + '":',
+            url,
+            "has no <x-dc> block \u2014 not a Design Component."
+          );
+          return;
+        }
+        if (parsed.props) r.propsMeta = parsed.props;
+        if (parsed.preview) r.preview = parsed.preview;
+        if (parsed.template && !r.html) updateHtml(name, parsed.template);
+        if (parsed.js && !r.Logic) updateJs(name, parsed.js);
+      }).catch(
+        (e) => console.error(
+          '[dc-runtime] sibling fetch for "' + name + '" threw:',
+          url,
+          e
+        )
+      );
+    }
+    let rootName = null;
+    function updateHtml(name, html) {
+      const r = registry.get(name);
+      r.html = html;
+      if (name === rootName) {
+        const mode = DESIGN_DOC_MODE_RE.exec(html)?.[1] ?? null;
+        if (mode || !r.htmlStreaming) helmet.setDesignDocMode(mode);
+      }
+      try {
+        r.tpl = compileTemplate(html, host);
+      } catch (e) {
+        console.error("[dc-runtime] template compile FAILED for", name, e);
+      }
+      registry.bump(name);
+    }
+    function updateJs(name, src) {
+      const r = registry.get(name);
+      const seq = r.jsSeq = (r.jsSeq || 0) + 1;
+      try {
+        const Cls = evalDcLogic(src);
+        if (r.jsSeq !== seq) return;
+        if (typeof Cls !== "function") {
+          r.logicError = name + ".dc.html: <script data-dc-script> must define `class Component extends DCLogic`";
+        } else {
+          r.logicError = null;
+          r.Logic = Cls;
+        }
+      } catch (e) {
+        if (r.jsSeq !== seq) return;
+        console.error(
+          "[dc-runtime] logic class eval FAILED for",
+          name,
+          "\u2014 the template renders with props only.",
+          e
+        );
+        r.logicError = name + ": " + (e instanceof Error && e.message ? e.message : String(e));
+      }
+      registry.bump(name);
+    }
+    function setStreaming(name, kind, on) {
+      const r = registry.get(name);
+      if (kind === "html") r.htmlStreaming = !!on;
+      else r.jsStreaming = !!on;
+      let any = false;
+      for (const n in registry.entries) {
+        const e = registry.entries[n];
+        if (e && (e.htmlStreaming || e.jsStreaming)) {
+          any = true;
+          break;
+        }
+      }
+      doc.documentElement.classList.toggle("sc-dc-streaming", any);
+      registry.bump(name);
+    }
+    function dcUpdate(name, kind, content, streaming) {
+      if (streaming) registry.get(name).fetched = true;
+      if (kind === "html") {
+        setStreaming(name, "html", !!streaming);
+        updateHtml(name, content);
+      } else if (kind === "js") {
+        setStreaming(name, "js", !!streaming);
+        if (!streaming) updateJs(name, content);
+      } else if (kind === "props") {
+        const { props, preview } = parseDataProps(content);
+        const r = registry.get(name);
+        r.propsMeta = props ?? void 0;
+        r.preview = preview;
+        registry.bump(name);
+      }
+    }
+    function setProps(name, overrides) {
+      registry.get(name).propOverrides = overrides && typeof overrides === "object" ? { ...overrides } : null;
+      registry.bump(name);
+    }
+    function adoptParsed(name, parsed) {
+      if (!parsed) return;
+      const r = registry.get(name);
+      if (parsed.props) r.propsMeta = parsed.props;
+      if (parsed.preview) r.preview = parsed.preview;
+      if (parsed.template) updateHtml(name, parsed.template);
+      if (parsed.js) updateJs(name, parsed.js);
+    }
+    return {
+      registry,
+      getDC: factory.getDC,
+      updateHtml,
+      updateJs,
+      dcUpdate,
+      setProps,
+      adoptParsed,
+      setRootName: (name) => {
+        rootName = name;
+      },
+      markFetched: (name) => {
+        registry.get(name).fetched = true;
+      },
+      annotatedTemplate: (name) => {
+        const r = registry.get(name);
+        return r.tpl && r.tpl.__annotated || null;
+      },
+      templateSource: (name) => registry.get(name).html || null,
+      StreamableLogic
+    };
+  }
+
+  // src/stream-state.ts
+  function createStreamTracker(staleMs = 6e4, now = Date.now) {
+    const since = /* @__PURE__ */ new Map();
+    const liveOne = (n) => {
+      const t = since.get(n);
+      if (t === void 0) return false;
+      if (now() - t > staleMs) {
+        since.delete(n);
+        return false;
+      }
+      return true;
+    };
+    return {
+      push(name, streaming, viewportKey) {
+        if (viewportKey === "dc-model") return;
+        if (streaming) since.set(name, now());
+        else since.delete(name);
+      },
+      live(name) {
+        if (name !== void 0) return liveOne(name);
+        for (const n of [...since.keys()]) if (liveOne(n)) return true;
+        return false;
+      }
+    };
+  }
+
+  // src/index.ts
+  function hideRawTemplate() {
+    const s = document.createElement("style");
+    s.textContent = "x-dc{display:none!important}";
+    document.head.appendChild(s);
+  }
+  function loadScript(src, integrity) {
+    return new Promise((resolve2, reject) => {
+      //! nosemgrep: create-script-element
+      const s = document.createElement("script");
+      s.src = src;
+      if (integrity) {
+        s.integrity = integrity;
+        s.crossOrigin = "anonymous";
+      }
+      s.async = false;
+      s.onload = () => resolve2();
+      s.onerror = () => reject(new Error(`failed to load ${src}`));
+      document.head.appendChild(s);
+    });
+  }
+  function loadReactUmd() {
+    const w = window;
+    if (w.React && w.ReactDOM) return Promise.resolve();
+    const react = cdnScriptFor(REACT_URL, REACT_SRI);
+    const reactDom = cdnScriptFor(REACT_DOM_URL, REACT_DOM_SRI);
+    return Promise.all([
+      loadScript(react.src, react.integrity),
+      loadScript(reactDom.src, reactDom.integrity)
+    ]).then(() => void 0);
+  }
+  function init() {
+    const runtime = createRuntime(document);
+    let rootName = "Root";
+    const baseCss = document.createElement("style");
+    baseCss.textContent = BASE_CSS;
+    document.head.prepend(baseCss);
+    const notifyHost = () => {
+      if (window.parent === window) return;
+      const r = runtime.registry.entries[rootName];
+      try {
+        window.parent.postMessage(
+          {
+            type: "__dc_booted",
+            rootName,
+            propsMeta: r && r.propsMeta || null,
+            preview: r && r.preview || null
+          },
+          "*"
+        );
+      } catch {
+      }
+    };
+    const streams = createStreamTracker();
+    const api = {
+      __dcUpdate: (name, kind, content, streaming, viewportKey) => {
+        streams.push(name, streaming, viewportKey);
+        runtime.dcUpdate(name, kind, content, streaming);
+        if (name === rootName && !streaming && kind === "props") notifyHost();
+      },
+      __dcStreaming: (name) => streams.live(name),
+      __dcSetProps: (name, overrides) => runtime.setProps(name, overrides),
+      /** Name of the component currently mounted as the page root — DC tools
+       *  push their template-stream here when targeting "the open page". */
+      __dcRootName: () => rootName,
+      /** Editor bridge — the encoded, `data-dc-tpl`-annotated template source.
+       *  The host editor parses this into its own template DOM so it can map a
+       *  rendered node (carrying the same `data-dc-tpl`) back to the source
+       *  node that emitted it. Returns the encoded form (`sc-camel-*` attrs,
+       *  `<sc-raw-*>`/`<sc-helmet>` tags); the editor decodes on serialize. */
+      __dcAnnotatedTemplate: (name) => runtime.annotatedTemplate(name),
+      /** Editor bridge — the *original* (decoded) template source. */
+      __dcTemplateSource: (name) => runtime.templateSource(name),
+      __dcBoot: () => {
+        rootName = boot(runtime, document) ?? rootName;
+        notifyHost();
+      },
+      __dcRegistry: runtime.registry.entries,
+      getDC: (name) => runtime.getDC(name),
+      // `DCLogic` is the documented base class name; `StreamableLogic` is the
+      // implementation alias kept for any project that already references it.
+      DCLogic: runtime.StreamableLogic,
+      StreamableLogic: runtime.StreamableLogic
+    };
+    Object.assign(window, api);
+    window.__dcContentKeyed = true;
+    if (document.readyState !== "loading") api.__dcBoot();
+    else document.addEventListener("DOMContentLoaded", () => api.__dcBoot());
+  }
+  hideRawTemplate();
+  loadReactUmd().then(init).catch((err) => {
+    console.error("[dc] failed to load React or boot:", err);
+    throw err;
+  });
+})();
+
+</script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0b0e12}
+a{color:#53c8f0;text-decoration:none} a:hover{color:#7fd8f5}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+</style>
+</helmet>
+<div style="min-height:100vh;background:#0b0e12;color:#dbe3ee;font-family:'IBM Plex Sans',sans-serif;font-size:14px;display:flex;flex-direction:column">
+  <div style="display:flex;align-items:center;flex-wrap:wrap;gap:10px 14px;padding:12px 20px;border-bottom:1px solid #1d2530;background:#0e1218">
+    <div style="display:flex;flex-direction:column;gap:1px;min-width:0">
+      <div style="font-weight:700;font-size:16px;letter-spacing:.4px">BENCH·LINK</div>
+      <div style="font-size:11px;color:#7f8ea1;font-family:'IBM Plex Mono',monospace;white-space:nowrap">DM3068 multi-device test station</div>
+    </div>
+    <div style="display:flex;gap:4px;margin-left:6px">
+      <sc-for list="{{ navItems }}" as="t" hint-placeholder-count="7">
+        <div onClick="{{ t.go }}" style="padding:7px 13px;border-radius:6px;cursor:pointer;font-weight:600;font-size:13px;background:{{ t.bg }};color:{{ t.color }};white-space:nowrap" style-hover="background:#1b2330">{{ t.label }}</div>
+      </sc-for>
+    </div>
+    <div style="flex:1"></div>
+    <div onClick="{{ goBoard }}" title="Active board type — click to edit" style="display:flex;align-items:center;gap:7px;padding:6px 12px;border-radius:7px;border:1px solid #232b37;background:#12161d;cursor:pointer;flex-shrink:0" style-hover="border-color:#2a3a4d">
+      <div style="font-size:10px;color:#7f8ea1;font-weight:700;letter-spacing:.5px">BOARD</div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#53c8f0;white-space:nowrap;max-width:160px;overflow:hidden;text-overflow:ellipsis">{{ boardChip }}</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;font-family:'IBM Plex Mono',monospace;font-size:12px;flex-shrink:0">
+      <div style="width:8px;height:8px;border-radius:50%;background:{{ connDotColor }}"></div>
+      <div style="color:#7f8ea1;white-space:nowrap">{{ connLabel }}</div>
+    </div>
+    <div onClick="{{ recToggle }}" title="Record readings to the live plot" style="display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:7px;border:1px solid {{ recBorder }};cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:700;color:{{ recColor }};flex-shrink:0;background:{{ recBg }}">
+      <div style="width:8px;height:8px;border-radius:50%;background:{{ recDot }};animation:{{ recAnim }}"></div>{{ recHeadLabel }}
+    </div>
+    <div style="display:flex;background:#151b24;border:1px solid #232b37;border-radius:7px;overflow:hidden;flex-shrink:0">
+      <div onClick="{{ setOperator }}" style="padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;background:{{ opBg }};color:{{ opColor }}">Operator</div>
+      <div onClick="{{ setEngineer }}" style="padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;background:{{ engBg }};color:{{ engColor }}">Engineer</div>
+    </div>
+  </div>
+
+  <sc-if value="{{ isRun }}" hint-placeholder-val="{{ true }}">
+  <div data-screen-label="Run" style="flex:1;display:grid;grid-template-columns:440px 1fr;gap:16px;padding:16px 24px;align-items:start">
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div style="background:#12161d;border:1px solid #222b37;border-radius:10px;padding:18px 20px">
+        <div style="display:flex;justify-content:space-between;font-family:'IBM Plex Mono',monospace;font-size:12px;color:#7f8ea1;margin-bottom:6px">
+          <div style="color:#53c8f0;font-weight:600">{{ readoutDut }}</div><div>{{ readoutFunc }}</div>
+        </div>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:44px;font-weight:600;color:{{ readoutColor }};text-shadow:{{ glowShadow }};letter-spacing:1px;white-space:nowrap">{{ readoutValue }}</div>
+        <sc-if value="{{ showOlHint }}" hint-placeholder-val="{{ false }}">
+          <div style="font-size:12px;color:#f2b34c;margin-top:4px">{{ olHint }}</div>
+        </sc-if>
+        <div style="height:6px;background:#1a212c;border-radius:3px;margin:14px 0 8px;overflow:hidden">
+          <div style="height:100%;background:#46e0a1;border-radius:3px;transition:width .15s;width:{{ barPct }}"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-family:'IBM Plex Mono',monospace;font-size:12px;color:#7f8ea1">
+          <div>LO {{ limitLow }}</div><div>{{ progressText }}</div><div>HI {{ limitHigh }}</div>
+        </div>
+      </div>
+      <sc-if value="{{ showProbeBar }}" hint-placeholder-val="{{ false }}">
+      <div style="background:#12161d;border:1px solid #2a3a4d;border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;gap:6px">
+          <sc-for list="{{ phaseChips }}" as="p" hint-placeholder-count="4">
+            <div style="flex:1;text-align:center;padding:6px 4px;border-radius:6px;font-size:11px;font-weight:700;font-family:'IBM Plex Mono',monospace;letter-spacing:.5px;background:{{ p.bg }};color:{{ p.color }};border:1px solid {{ p.border }}">{{ p.label }}</div>
+          </sc-for>
+        </div>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:{{ probeColor }};font-weight:600">{{ probeMsg }}</div>
+        <div style="height:8px;background:#1a212c;border-radius:4px;overflow:hidden">
+          <div style="height:100%;background:{{ probeColor }};width:{{ probePct }};transition:width .12s"></div>
+        </div>
+      </div>
+      </sc-if>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button onClick="{{ startStop }}" disabled="{{ startDisabled }}" style="flex:1;min-width:120px;padding:12px;border:none;border-radius:8px;font-weight:700;font-size:14px;cursor:pointer;font-family:'IBM Plex Sans',sans-serif;background:{{ startBg }};color:{{ startColor }};opacity:{{ startOpacity }}">{{ startLabel }}</button>
+        <button onClick="{{ pauseToggle }}" disabled="{{ pauseDisabled }}" style="padding:12px 16px;border:1px solid #232b37;border-radius:8px;font-weight:600;cursor:pointer;background:#151b24;color:#dbe3ee;font-family:'IBM Plex Sans',sans-serif;opacity:{{ pauseOpacity }}">{{ pauseLabel }}</button>
+        <button onClick="{{ resetRun }}" style="padding:12px 16px;border:1px solid #232b37;border-radius:8px;font-weight:600;cursor:pointer;background:#151b24;color:#7f8ea1;font-family:'IBM Plex Sans',sans-serif">Reset</button>
+      </div>
+      <sc-if value="{{ showRunTools }}" hint-placeholder-val="{{ false }}">
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button onClick="{{ redoLast }}" disabled="{{ redoDisabled }}" style="padding:10px 14px;border:1px solid #232b37;border-radius:8px;font-weight:600;cursor:pointer;background:#151b24;color:#dbe3ee;font-family:'IBM Plex Sans',sans-serif;opacity:{{ redoOpacity }};white-space:nowrap">↩ Redo last point</button>
+        <button onClick="{{ skipPoint }}" style="padding:10px 14px;border:1px solid #232b37;border-radius:8px;font-weight:600;cursor:pointer;background:#151b24;color:#dbe3ee;font-family:'IBM Plex Sans',sans-serif;white-space:nowrap">Skip point →</button>
+        <sc-if value="{{ isLive }}" hint-placeholder-val="{{ false }}">
+        <button onClick="{{ probeToggle }}" title="Manual probing: hold on the point to capture, lift to advance" style="padding:10px 14px;border:1px solid {{ probeBtnBorder }};border-radius:8px;font-weight:600;cursor:pointer;background:#151b24;color:{{ probeBtnColor }};font-family:'IBM Plex Sans',sans-serif;white-space:nowrap">{{ probeBtnLabel }}</button>
+        <div style="display:flex;align-items:center;gap:4px;border:1px solid #232b37;border-radius:8px;padding:0 6px;background:#151b24">
+          <div onClick="{{ holdMinus }}" style="cursor:pointer;color:#7f8ea1;font-size:17px;padding:3px 8px" style-hover="color:#dbe3ee">−</div>
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#dbe3ee;white-space:nowrap">hold {{ holdSecText }}</div>
+          <div onClick="{{ holdPlus }}" style="cursor:pointer;color:#7f8ea1;font-size:17px;padding:3px 8px" style-hover="color:#dbe3ee">+</div>
+        </div>
+        </sc-if>
+      </div>
+      </sc-if>
+      <sc-if value="{{ showChecklist }}" hint-placeholder-val="{{ false }}">
+      <div style="background:#12161d;border:1px solid #222b37;border-radius:10px;padding:6px 0">
+        <sc-for list="{{ checklist }}" as="c" hint-placeholder-count="3">
+          <div onClick="{{ c.go }}" style="display:flex;align-items:center;gap:10px;padding:9px 16px;cursor:pointer" style-hover="background:#161d27">
+            <div style="font-family:'IBM Plex Mono',monospace;font-weight:700;color:{{ c.color }};width:16px">{{ c.mark }}</div>
+            <div style="font-size:13px;color:{{ c.textColor }};flex:1">{{ c.label }}</div>
+            <div style="font-size:11px;color:#53c8f0">open →</div>
+          </div>
+        </sc-for>
+      </div>
+      </sc-if>
+      <div style="background:#12161d;border:1px solid #222b37;border-radius:10px;padding:14px 16px;display:flex;gap:16px;font-family:'IBM Plex Mono',monospace;font-size:13px;flex-wrap:wrap">
+        <div><span style="color:#7f8ea1">PASS </span><span style="color:#46e0a1;font-weight:600">{{ passCount }}</span></div>
+        <div><span style="color:#7f8ea1">FAIL </span><span style="color:#ff5c6a;font-weight:600">{{ failCount }}</span></div>
+        <div><span style="color:#7f8ea1">SKIP </span><span style="color:#f2b34c;font-weight:600">{{ skipCount }}</span></div>
+        <div><span style="color:#7f8ea1">LEFT </span><span style="font-weight:600">{{ pendingCount }}</span></div>
+        <div style="flex:1"></div>
+        <div style="color:{{ lastDoneColor }};font-weight:600">{{ lastDoneText }}</div>
+        <div style="color:#7f8ea1">{{ elapsedText }}</div>
+      </div>
+      <sc-if value="{{ isEngineer }}" hint-placeholder-val="{{ true }}">
+      <div style="background:#0e1218;border:1px solid #1d2530;border-radius:10px;padding:12px 14px;height:150px;overflow:auto;font-family:'IBM Plex Mono',monospace;font-size:11px;color:#7f8ea1;display:flex;flex-direction:column-reverse;gap:2px">
+        <sc-for list="{{ logLines }}" as="line" hint-placeholder-count="3">
+          <div style="white-space:pre-wrap">{{ line }}</div>
+        </sc-for>
+      </div>
+      </sc-if>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:12px;min-width:0">
+      <div style="background:#12161d;border:1px solid #222b37;border-radius:10px;overflow:hidden">
+        <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid #1d2530">
+          <div style="font-weight:700">{{ currentBoardTitle }}</div>
+          <div style="flex:1"></div>
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#7f8ea1">{{ currentBoardMeta }}</div>
+        </div>
+        <div style="max-height:430px;overflow-y:auto">
+          <sc-for list="{{ pointRows }}" as="pt" hint-placeholder-count="8">
+            <div style="display:flex;align-items:center;gap:10px;padding:7px 16px;border-bottom:1px solid #161d27;background:{{ pt.bg }}">
+              <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#7f8ea1;width:22px">{{ pt.num }}</div>
+              <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:600;color:#53c8f0;width:56px">{{ pt.pin }}</div>
+              <div style="font-size:12px;color:#9fb0c3;width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ pt.func }}</div>
+              <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#7f8ea1;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ pt.expect }}</div>
+              <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600;color:{{ pt.color }};white-space:nowrap">{{ pt.val }}</div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+      <div style="background:#12161d;border:1px solid #222b37;border-radius:10px;padding:12px 16px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+          <div style="font-weight:700;font-size:13px">Batch</div>
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#7f8ea1">{{ batchMeta }}</div>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <sc-for list="{{ boardChips }}" as="bc" hint-placeholder-count="6">
+            <div style="display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:6px;border:1px solid {{ bc.border }};background:#0e1218;font-family:'IBM Plex Mono',monospace;font-size:12px">
+              <div style="width:7px;height:7px;border-radius:50%;background:{{ bc.dot }};animation:{{ bc.anim }}"></div>{{ bc.sn }}
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ isBoard }}" hint-placeholder-val="{{ false }}">
+  <div data-screen-label="Board" style="flex:1;padding:16px 24px;display:grid;grid-template-columns:1fr 360px;gap:16px;align-items:start">
+    <div style="background:#12161d;border:1px solid #222b37;border-radius:10px;overflow:hidden;min-width:0">
+      <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid #1d2530;flex-wrap:wrap">
+        <div style="font-weight:700">Board type — test points</div>
+        <input value="{{ boardName }}" onChange="{{ setBoardName }}" placeholder="board type name" style="width:180px;background:#0e1218;border:1px solid #232b37;border-radius:6px;color:#53c8f0;padding:7px 10px;font-family:'IBM Plex Mono',monospace;font-size:12px"></input>
+        <div style="flex:1"></div>
+        <button onClick="{{ addStep }}" style="padding:7px 12px;border:1px solid #2a3a4d;border-radius:7px;background:#16202c;color:#53c8f0;font-weight:600;cursor:pointer;font-family:'IBM Plex Sans',sans-serif;font-size:12px;white-space:nowrap">+ Add point</button>
+        <button onClick="{{ exportTemplate }}" style="padding:7px 12px;border:1px solid #2a3a4d;border-radius:7px;background:#16202c;color:#53c8f0;font-weight:600;cursor:pointer;font-family:'IBM Plex Sans',sans-serif;font-size:12px;white-space:nowrap">Export CSV</button>
+      </div>
+      <div style="display:grid;grid-template-columns:30px .8fr 1.2fr .9fr .9fr 76px 30px;gap:8px;padding:10px 16px 4px;font-size:11px;color:#7f8ea1;font-weight:600;text-transform:uppercase;letter-spacing:.5px">
+        <div>#</div><div>Pin</div><div>Measurement</div><div>Min</div><div>Max</div><div>Unit</div><div></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px;padding:4px 16px 14px">
+        <sc-for list="{{ stepRows }}" as="s" hint-placeholder-count="6">
+          <div style="display:grid;grid-template-columns:30px .8fr 1.2fr .9fr .9fr 76px 30px;gap:8px;align-items:center">
+            <div style="font-family:'IBM Plex Mono',monospace;color:#7f8ea1;font-size:12px">{{ s.num }}</div>
+            <input value="{{ s.pin }}" onChange="{{ s.setPin }}" placeholder="TP8" style="background:#0e1218;border:1px solid #232b37;border-radius:6px;color:#dbe3ee;padding:7px 9px;font-family:'IBM Plex Mono',monospace;font-size:13px;width:100%;box-sizing:border-box"></input>
+            <select value="{{ s.func }}" onChange="{{ s.setFunc }}" style="background:#0e1218;border:1px solid #232b37;border-radius:6px;color:#dbe3ee;padding:7px 6px;font-family:'IBM Plex Sans',sans-serif;font-size:13px;width:100%">
+              <option>Voltage DC</option><option>Voltage AC</option><option>Resistance 2W</option><option>Resistance 4W</option><option>Continuity</option><option>Diode</option><option>Capacitance</option><option>Current DC</option><option>Current AC</option><option>Frequency</option><option>Period</option><option>Temperature</option>
+            </select>
+            <input value="{{ s.lowStr }}" onChange="{{ s.setLow }}" placeholder="min" style="background:#0e1218;border:1px solid #232b37;border-radius:6px;color:#dbe3ee;padding:7px 9px;font-family:'IBM Plex Mono',monospace;font-size:13px;width:100%;box-sizing:border-box"></input>
+            <input value="{{ s.highStr }}" onChange="{{ s.setHigh }}" placeholder="— none" style="background:#0e1218;border:1px solid #232b37;border-radius:6px;color:#dbe3ee;padding:7px 9px;font-family:'IBM Plex Mono',monospace;font-size:13px;width:100%;box-sizing:border-box"></input>
+            <select value="{{ s.unit }}" onChange="{{ s.setUnit }}" style="background:#0e1218;border:1px solid #232b37;border-radius:6px;color:#9fb0c3;padding:7px 4px;font-family:'IBM Plex Mono',monospace;font-size:12px;width:100%">
+              <sc-for list="{{ s.unitOpts }}" as="u" hint-placeholder-count="3"><option value="{{ u.l }}">{{ u.l }}</option></sc-for>
+            </select>
+            <div onClick="{{ s.remove }}" style="cursor:pointer;color:#7f8ea1;text-align:center;font-size:16px" style-hover="color:#ff5c6a">×</div>
+          </div>
+        </sc-for>
+      </div>
+      <div style="padding:0 16px 14px;color:#7f8ea1;font-size:12px">Leave Max blank for lower-bound-only specs (≥ 100 kΩ). Order points to minimise function switching — all resistance, then all voltage.</div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:14px;min-width:0">
+      <div style="background:#12161d;border:1px solid #222b37;border-radius:10px;padding:16px">
+        <div style="font-weight:700;margin-bottom:6px">Library</div>
+        <div style="color:#7f8ea1;font-size:12px;margin-bottom:10px">Saved board types (kept across sessions).</div>
+        <button onClick="{{ saveBoard }}" style="width:100%;padding:10px;border:none;border-radius:7px;font-weight:700;cursor:pointer;font-family:'IBM Plex Sans',sans-serif;background:#164534;color:#46e0a1">Save "{{ boardChip }}"</button>
+        <sc-if value="{{ noBoards }}" hint-placeholder-val="{{ true }}">
+          <div style="color:#7f8ea1;font-size:12px;margin-top:12px">Nothing saved yet.</div>
+        </sc-if>
+        <div style="display:flex;flex-direction:column;gap:6px;margin-top:12px">
+          <sc-for list="{{ boardRows }}" as="b" hint-placeholder-count="2">
+            <div style="display:flex;align-items:center;gap:10px;background:#0e1218;border:1px solid #222b37;border-radius:7px;padding:9px 12px">
+              <div style="font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ b.name }}</div>
+              <div style="font-size:11px;color:#7f8ea1;white-space:nowrap">{{ b.meta }}</div>
+              <div style="flex:1"></div>
+              <button onClick="{{ b.load }}" style="padding:5px 11px;border:1px solid #2a3a4d;border-radius:6px;background:#16202c;color:#53c8f0;font-weight:600;cursor:pointer;font-family:'IBM Plex Sans',sans-serif;font-size:12px">Load</button>
+              <div onClick="{{ b.remove }}" style="cursor:pointer;color:#7f8ea1;font-size:15px;padding:0 3px" style-hover="color:#ff5c6a">×</div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+      <div style="background:#12161d;border:1px solid #222b37;border-radius:10px;padding:16px">
+        <div style="font-weight:700;margin-bottom:6px">Import template</div>
+        <div style="color:#7f8ea1;font-size:12px;margin-bottom:10px">CSV with columns <span style="font-family:'IBM Plex Mono',monospace">point, measurement, min, max, unit</span> — or a criteria sheet (<span style="font-family:'IBM Plex Mono',monospace">Component, Resistance min/max, unit, Voltage min/max</span>).</div>
+        <input type="file" accept=".csv,text/csv" onChange="{{ importCsv }}" style="width:100%;color:#9fb0c3;font-size:12px;font-family:'IBM Plex Mono',monospace"></input>
+        <div style="margin-top:8px;font-size:12px;color:{{ importMsgColor }}">{{ importMsg }}</div>
+      </div>
+    </div>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ isBatch }}" hint-placeholder-val="{{ false }}">
+  <div data-screen-label="Batch" style="flex:1;padding:16px 24px;display:grid;grid-template-columns:380px 1fr;gap:16px;align-items:start">
+    <div style="background:#12161d;border:1px solid #222b37;border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:12px">
+      <div style="font-weight:700">Add boards to the batch</div>
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <div style="font-size:11px;color:#7f8ea1;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Serial numbers</div>
+        <input value="{{ snInput }}" onChange="{{ setSnInput }}" placeholder="e.g. 1, 5, 6, 7 — commas for several" style="background:#0e1218;border:1px solid #232b37;border-radius:6px;color:#dbe3ee;padding:9px 10px;font-family:'IBM Plex Mono',monospace;font-size:13px;width:100%;box-sizing:border-box"></input>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <div style="font-size:11px;color:#7f8ea1;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Notes (optional)</div>
+        <input value="{{ snNotes }}" onChange="{{ setSnNotes }}" placeholder="batch, rework, operator…" style="background:#0e1218;border:1px solid #232b37;border-radius:6px;color:#dbe3ee;padding:9px 10px;font-family:'IBM Plex Sans',sans-serif;font-size:13px;width:100%;box-sizing:border-box"></input>
+      </div>
+      <button onClick="{{ addSerials }}" style="padding:11px;border:none;border-radius:7px;font-weight:700;cursor:pointer;font-family:'IBM Plex Sans',sans-serif;background:#164534;color:#46e0a1">+ Add to batch</button>
+      <div style="border-top:1px solid #1d2530;padding-top:12px">
+        <button onClick="{{ newBatch }}" style="width:100%;padding:10px;border:1px solid #3a2026;border-radius:7px;font-weight:600;cursor:pointer;font-family:'IBM Plex Sans',sans-serif;background:#151b24;color:#ff8f98">Start new batch (clears boards &amp; results)</button>
+      </div>
+    </div>
+    <div style="background:#12161d;border:1px solid #222b37;border-radius:10px;overflow:hidden">
+      <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid #1d2530">
+        <div style="font-weight:700">Current batch</div>
+        <div style="color:#7f8ea1;font-size:12px">{{ batchCountText }}</div>
+      </div>
+      <sc-if value="{{ noSerials }}" hint-placeholder-val="{{ true }}">
+        <div style="color:#7f8ea1;padding:26px;text-align:center;font-size:13px">Empty — add serial numbers on the left. Each board runs the full "{{ boardChip }}" template.</div>
+      </sc-if>
+      <div style="display:flex;flex-direction:column">
+        <sc-for list="{{ serialRows }}" as="sr" hint-placeholder-count="4">
+          <div style="display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid #161d27">
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#7f8ea1;width:24px">{{ sr.num }}</div>
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:600;width:110px">SN {{ sr.sn }}</div>
+            <div style="font-size:12px;color:#7f8ea1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">{{ sr.notes }}</div>
+            <div style="font-size:11px;font-weight:700;font-family:'IBM Plex Mono',monospace;color:{{ sr.statusColor }}">{{ sr.status }}</div>
+            <div onClick="{{ sr.remove }}" style="cursor:pointer;color:#7f8ea1;font-size:15px" style-hover="color:#ff5c6a">×</div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ isResults }}" hint-placeholder-val="{{ false }}">
+  <div data-screen-label="Results" style="flex:1;padding:16px 24px;display:grid;grid-template-columns:1fr 360px;gap:16px;align-items:start">
+    <div style="background:#12161d;border:1px solid #222b37;border-radius:10px;overflow-x:auto">
+      <div style="display:flex;gap:6px;padding:12px 16px;border-bottom:1px solid #1d2530;font-size:11px;color:#7f8ea1;font-weight:600;text-transform:uppercase;letter-spacing:.5px;min-width:max-content">
+        <div style="width:80px">SN</div>
+        <sc-for list="{{ stepHeads }}" as="h" hint-placeholder-count="6"><div style="width:74px;text-align:center" title="{{ h.name }}">{{ h.short }}</div></sc-for>
+        <div style="width:60px;text-align:right">Status</div>
+      </div>
+      <div style="display:flex;gap:6px;padding:7px 16px;border-bottom:1px solid #1d2530;font-size:10px;color:#7f8ea1;font-family:'IBM Plex Mono',monospace;min-width:max-content;background:#0e1218">
+        <div style="width:80px">criteria</div>
+        <sc-for list="{{ critCells }}" as="cc" hint-placeholder-count="6"><div style="width:74px;text-align:center;white-space:nowrap">{{ cc.text }}</div></sc-for>
+        <div style="width:60px"></div>
+      </div>
+      <sc-for list="{{ resultRows }}" as="r" hint-placeholder-count="6">
+        <div onClick="{{ r.select }}" style="display:flex;gap:6px;padding:8px 16px;border-bottom:1px solid #161d27;cursor:pointer;align-items:center;background:{{ r.bg }};min-width:max-content" style-hover="background:#161d27">
+          <div style="width:80px;font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.name }}</div>
+          <sc-for list="{{ r.cells }}" as="c" hint-placeholder-count="6">
+            <div style="width:74px;text-align:center;font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600;color:{{ c.color }};background:{{ c.bg }};border-radius:4px;padding:3px 0" title="{{ c.tip }}">{{ c.text }}</div>
+          </sc-for>
+          <div style="width:60px;text-align:right;font-size:11px;font-weight:700;font-family:'IBM Plex Mono',monospace;color:{{ r.statusColor }}">{{ r.status }}</div>
+        </div>
+      </sc-for>
+      <div style="display:flex;gap:16px;padding:10px 16px;font-size:11px;color:#7f8ea1;font-family:'IBM Plex Mono',monospace">
+        <div><span style="color:#46e0a1">■</span> in spec</div>
+        <div><span style="color:#f2b34c">■</span> near limit</div>
+        <div><span style="color:#ff5c6a">■</span> out of spec</div>
+        <div><span style="color:#3a4656">■</span> skipped / pending</div>
+      </div>
+    </div>
+    <div style="background:#12161d;border:1px solid #222b37;border-radius:10px;padding:16px">
+      <div style="font-weight:700;margin-bottom:10px">{{ detailTitle }}</div>
+      <sc-if value="{{ hasDetail }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <sc-for list="{{ detailRows }}" as="dr" hint-placeholder-count="6">
+            <div style="display:flex;justify-content:space-between;gap:10px;padding:8px 10px;background:#0e1218;border-radius:7px;border-left:2px solid {{ dr.color }}">
+              <div style="font-size:12px;color:#9fb0c3">{{ dr.step }}</div>
+              <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:{{ dr.color }};white-space:nowrap">{{ dr.value }}</div>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+      <sc-if value="{{ noDetail }}" hint-placeholder-val="{{ true }}">
+        <div style="color:#7f8ea1;font-size:13px">Select a board row to inspect values against the criteria.</div>
+      </sc-if>
+      <button onClick="{{ exportCsv }}" style="margin-top:14px;width:100%;padding:10px;border:1px solid #2a3a4d;border-radius:7px;background:#16202c;color:#53c8f0;font-weight:600;cursor:pointer;font-family:'IBM Plex Sans',sans-serif;white-space:nowrap">Export spreadsheet (CSV)</button>
+      <div style="margin-top:8px;font-size:11px;color:#7f8ea1">One row per SN, one column per point in template units, criteria section appended.</div>
+      <sc-if value="{{ hasFailures }}" hint-placeholder-val="{{ false }}">
+        <button onClick="{{ retestFailures }}" style="margin-top:10px;width:100%;padding:10px;border:1px solid #5a2730;border-radius:7px;background:#2a161b;color:#ff8f98;font-weight:600;cursor:pointer;font-family:'IBM Plex Sans',sans-serif">Retest {{ failBoardCount }} failed board(s)</button>
+      </sc-if>
+    </div>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ isAnalytics }}" hint-placeholder-val="{{ false }}">
+  <div data-screen-label="Analytics" style="flex:1;padding:16px 24px;display:flex;flex-direction:column;gap:14px;min-width:0">
+    <sc-if value="{{ noStats }}" hint-placeholder-val="{{ true }}">
+      <div style="color:#7f8ea1;padding:30px;border:1px dashed #232b37;border-radius:10px;text-align:center">No measurements yet — run a batch to see yield and process-capability analytics.</div>
+    </sc-if>
+    <div style="display:flex;gap:14px;flex-wrap:wrap">
+      <div style="background:#12161d;border:1px solid #222b37;border-radius:10px;padding:16px 20px;min-width:180px">
+        <div style="font-size:11px;color:#7f8ea1;font-weight:600;text-transform:uppercase;letter-spacing:.5px">First pass yield</div>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:34px;font-weight:600;color:#46e0a1">{{ fpyPct }}</div>
+        <div style="font-size:12px;color:#7f8ea1">{{ fpyDetail }}</div>
+      </div>
+      <div style="background:#12161d;border:1px solid #222b37;border-radius:10px;padding:16px 20px;min-width:130px">
+        <div style="font-size:11px;color:#7f8ea1;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Boards</div>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:20px;margin-top:6px"><span style="color:#46e0a1;font-weight:600">{{ boardsPass }}</span> <span style="color:#7f8ea1;font-size:13px">pass</span></div>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:20px"><span style="color:#ff5c6a;font-weight:600">{{ boardsFail }}</span> <span style="color:#7f8ea1;font-size:13px">fail</span></div>
+      </div>
+      <div style="flex:1;background:#12161d;border:1px solid #222b37;border-radius:10px;padding:14px 16px;min-width:240px">
+        <div style="font-size:11px;color:#7f8ea1;font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Failure pareto</div>
+        <sc-if value="{{ noPareto }}" hint-placeholder-val="{{ true }}"><div style="color:#46e0a1;font-size:13px">No failures recorded</div></sc-if>
+        <div style="display:flex;flex-direction:column;gap:5px">
+          <sc-for list="{{ paretoRows }}" as="p" hint-placeholder-count="3">
+            <div style="display:flex;align-items:center;gap:8px">
+              <div style="width:120px;font-size:12px;color:#9fb0c3;font-family:'IBM Plex Mono',monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ p.label }}</div>
+              <div style="flex:1;height:12px;background:#1a212c;border-radius:3px;overflow:hidden"><div style="height:100%;background:#ff5c6a;width:{{ p.barWidth }}"></div></div>
+              <div style="width:26px;text-align:right;font-family:'IBM Plex Mono',monospace;font-size:12px;color:#ff5c6a">{{ p.fail }}</div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+    <div style="background:#12161d;border:1px solid #222b37;border-radius:10px;overflow-x:auto">
+      <div style="display:flex;gap:8px;padding:12px 16px;border-bottom:1px solid #1d2530;font-size:11px;color:#7f8ea1;font-weight:600;text-transform:uppercase;letter-spacing:.5px;min-width:780px">
+        <div style="width:116px">Point</div><div style="width:34px;text-align:right">n</div>
+        <div style="width:96px;text-align:right">Mean</div><div style="width:74px;text-align:right">Std dev</div>
+        <div style="width:50px;text-align:right">Cp</div><div style="width:50px;text-align:right">Cpk</div>
+        <div style="width:52px;text-align:right">Yield</div>
+        <div style="flex:1;min-width:180px;padding-left:12px">Distribution vs limits</div>
+      </div>
+      <sc-for list="{{ analyticsRows }}" as="a" hint-placeholder-count="6">
+        <div style="display:flex;gap:8px;padding:9px 16px;border-bottom:1px solid #161d27;align-items:center;min-width:780px">
+          <div style="width:116px;font-size:13px"><span style="font-family:'IBM Plex Mono',monospace;color:#53c8f0;font-weight:600">{{ a.pin }}</span> <span style="color:#9fb0c3">{{ a.func }}</span></div>
+          <div style="width:34px;text-align:right;font-family:'IBM Plex Mono',monospace;font-size:12px;color:#9fb0c3">{{ a.n }}</div>
+          <div style="width:96px;text-align:right;font-family:'IBM Plex Mono',monospace;font-size:12px">{{ a.mean }} {{ a.unit }}</div>
+          <div style="width:74px;text-align:right;font-family:'IBM Plex Mono',monospace;font-size:12px;color:#9fb0c3">{{ a.sd }}</div>
+          <div style="width:50px;text-align:right;font-family:'IBM Plex Mono',monospace;font-size:12px;color:#9fb0c3">{{ a.cp }}</div>
+          <div style="width:50px;text-align:right;font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:700;color:{{ a.cpkColor }}">{{ a.cpk }}</div>
+          <div style="width:52px;text-align:right;font-family:'IBM Plex Mono',monospace;font-size:12px">{{ a.yieldT }}</div>
+          <div style="flex:1;min-width:180px;padding-left:12px">
+            <sc-if value="{{ a.hasBar }}" hint-placeholder-val="{{ true }}">
+              <div style="position:relative;height:16px;background:#0e1218;border-radius:3px">
+                <div style="position:absolute;top:0;bottom:0;left:{{ a.bandLeft }};width:{{ a.bandWidth }};background:rgba(70,224,161,.14);border-left:1px solid #f2b34c;border-right:1px solid #f2b34c"></div>
+                <div style="position:absolute;top:6px;height:4px;left:{{ a.rangeLeft }};width:{{ a.rangeWidth }};background:#3a4656;border-radius:2px"></div>
+                <div style="position:absolute;top:1px;bottom:1px;width:2px;left:{{ a.meanLeft }};background:{{ a.meanColor }}"></div>
+              </div>
+            </sc-if>
+            <div style="font-size:11px;color:#7f8ea1;font-family:'IBM Plex Mono',monospace;margin-top:2px">{{ a.range }} {{ a.unit }} · spec {{ a.limits }}</div>
+          </div>
+        </div>
+      </sc-for>
+      <div style="padding:9px 16px;font-size:11px;color:#7f8ea1;font-family:'IBM Plex Mono',monospace">Cpk ≥ 1.33 capable · 1.0–1.33 marginal · &lt; 1.0 not capable</div>
+    </div>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ isPlot }}" hint-placeholder-val="{{ false }}">
+  <div data-screen-label="Plot" style="flex:1;padding:16px 24px;display:flex;flex-direction:column;gap:12px;min-width:0">
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <div style="font-weight:700;font-size:16px">Live plot</div>
+      <input value="{{ plotName }}" onChange="{{ setPlotName }}" placeholder="recording name…" style="width:190px;background:#0e1218;border:1px solid #232b37;border-radius:6px;color:#dbe3ee;padding:8px 10px;font-family:'IBM Plex Sans',sans-serif;font-size:13px"></input>
+      <button onClick="{{ recToggle }}" style="display:flex;align-items:center;gap:8px;padding:8px 16px;border:none;border-radius:7px;font-weight:700;cursor:pointer;font-family:'IBM Plex Sans',sans-serif;background:{{ recBtnBg }};color:{{ recBtnColor }};white-space:nowrap"><span style="width:8px;height:8px;border-radius:50%;background:currentColor;display:inline-block"></span>{{ recBtnLabel }}</button>
+      <button onClick="{{ holdToggle }}" style="padding:8px 16px;border:1px solid #232b37;border-radius:7px;font-weight:600;cursor:pointer;font-family:'IBM Plex Sans',sans-serif;background:{{ holdBg }};color:{{ holdColor }}">{{ holdLabel }}</button>
+      <div style="color:#7f8ea1;font-size:12px;font-family:'IBM Plex Mono',monospace">{{ sampleCountText }}</div>
+      <div style="flex:1"></div>
+      <button onClick="{{ exportRecording }}" style="padding:8px 14px;border:1px solid #2a3a4d;border-radius:7px;background:#16202c;color:#53c8f0;font-weight:600;cursor:pointer;font-family:'IBM Plex Sans',sans-serif;font-size:12px;white-space:nowrap">Export recording (CSV)</button>
+      <button onClick="{{ clearSamples }}" style="padding:8px 14px;border:1px solid #232b37;border-radius:7px;background:#151b24;color:#7f8ea1;font-weight:600;cursor:pointer;font-family:'IBM Plex Sans',sans-serif;font-size:12px">Clear</button>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+      <sc-for list="{{ plotChips }}" as="pc" hint-placeholder-count="3">
+        <div onClick="{{ pc.set }}" style="padding:6px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;border:1px solid #232b37;background:{{ pc.bg }};color:{{ pc.color }}">{{ pc.label }}</div>
+      </sc-for>
+      <select value="{{ otherFunc }}" onChange="{{ setOtherFunc }}" style="background:#0e1218;border:1px solid #232b37;border-radius:6px;color:#7f8ea1;padding:6px 6px;font-family:'IBM Plex Sans',sans-serif;font-size:12px">
+        <option value="">other type…</option>
+        <sc-for list="{{ otherFuncOpts }}" as="o" hint-placeholder-count="4"><option value="{{ o.f }}">{{ o.f }}</option></sc-for>
+      </select>
+      <div style="flex:1"></div>
+      <sc-for list="{{ windowChips }}" as="wc" hint-placeholder-count="5">
+        <div onClick="{{ wc.set }}" style="padding:6px 11px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;font-family:'IBM Plex Mono',monospace;border:1px solid #232b37;background:{{ wc.bg }};color:{{ wc.color }}">{{ wc.label }}</div>
+      </sc-for>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:#12161d;border:1px solid #222b37;border-radius:8px;padding:8px 12px">
+      <div onClick="{{ trigToggle }}" style="padding:6px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;border:1px solid #232b37;background:{{ trigBg }};color:{{ trigColor }};white-space:nowrap">Trigger: {{ trigLabel }}</div>
+      <sc-if value="{{ trigOn }}" hint-placeholder-val="{{ false }}">
+        <div onClick="{{ autoToggle }}" style="padding:6px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;border:1px solid #232b37;background:{{ autoBg }};color:{{ autoColor }}">AUTO</div>
+        <sc-if value="{{ trigManual }}" hint-placeholder-val="{{ true }}">
+        <div style="font-size:12px;color:#7f8ea1">record once reading is</div>
+        <div onClick="{{ setEdgeAbove }}" style="padding:6px 10px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;font-family:'IBM Plex Mono',monospace;border:1px solid #232b37;background:{{ edgeAboveBg }};color:{{ edgeAboveColor }}">≥</div>
+        <div onClick="{{ setEdgeBelow }}" style="padding:6px 10px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;font-family:'IBM Plex Mono',monospace;border:1px solid #232b37;background:{{ edgeBelowBg }};color:{{ edgeBelowColor }}">≤</div>
+        <input value="{{ trigLevel }}" onChange="{{ setTrigLevel }}" placeholder="level" style="width:100px;background:#0e1218;border:1px solid #232b37;border-radius:6px;color:#dbe3ee;padding:7px 9px;font-family:'IBM Plex Mono',monospace;font-size:13px"></input>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#9fb0c3">{{ trigUnit }}</div>
+        </sc-if>
+        <sc-if value="{{ trigAutoOn }}" hint-placeholder-val="{{ false }}">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#9fb0c3">{{ autoBandText }}</div>
+        </sc-if>
+        <div style="flex:1"></div>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:700;color:{{ armedColor }}">{{ armedText }}</div>
+      </sc-if>
+    </div>
+    <div style="position:relative;background:#0e1218;border:1px solid #222b37;border-radius:10px;padding:0;overflow:hidden">
+      <svg viewBox="0 0 800 260" preserveAspectRatio="none" style="width:100%;height:340px;display:block">
+        <line x1="0" y1="65" x2="800" y2="65" stroke="#1a212c" stroke-width="1"></line>
+        <line x1="0" y1="130" x2="800" y2="130" stroke="#1a212c" stroke-width="1"></line>
+        <line x1="0" y1="195" x2="800" y2="195" stroke="#1a212c" stroke-width="1"></line>
+        <sc-if value="{{ hasLimits }}" hint-placeholder-val="{{ false }}">
+          <line x1="0" y1="{{ loY }}" x2="800" y2="{{ loY }}" stroke="#f2b34c" stroke-width="1" stroke-dasharray="6 5" opacity="0.7"></line>
+          <line x1="0" y1="{{ hiY }}" x2="800" y2="{{ hiY }}" stroke="#f2b34c" stroke-width="1" stroke-dasharray="6 5" opacity="0.7"></line>
+        </sc-if>
+        <polyline points="{{ plotPoints }}" fill="none" stroke="#46e0a1" stroke-width="1.6" vector-effect="non-scaling-stroke"></polyline>
+      </svg>
+      <div style="position:absolute;top:8px;left:12px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:#7f8ea1">{{ yMaxLabel }}</div>
+      <div style="position:absolute;bottom:34px;left:12px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:#7f8ea1">{{ yMinLabel }}</div>
+      <div style="position:absolute;top:8px;right:12px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:#f2b34c">{{ limitLegend }}</div>
+      <sc-if value="{{ plotEmpty }}" hint-placeholder-val="{{ false }}">
+        <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#7f8ea1;font-size:13px;text-align:center;padding:0 40px">No data yet — connect the meter and toggle REC. The selected type streams continuously; runs are recorded too. OL (open/over-range) readings are ignored.</div>
+      </sc-if>
+      <div style="display:flex;justify-content:space-between;font-family:'IBM Plex Mono',monospace;font-size:11px;color:#7f8ea1;padding:6px 12px;border-top:1px solid #161d27">
+        <div>{{ tStart }}</div><div>{{ tMid }}</div><div style="color:{{ tEndColor }}">{{ tEnd }}</div>
+      </div>
+    </div>
+    <div style="display:flex;gap:20px;background:#12161d;border:1px solid #222b37;border-radius:10px;padding:12px 16px;font-family:'IBM Plex Mono',monospace;font-size:13px;flex-wrap:wrap">
+      <div><span style="color:#7f8ea1">LAST </span><span style="color:#46e0a1;font-weight:600">{{ statLast }}</span></div>
+      <div><span style="color:#7f8ea1">MIN </span>{{ statMin }}</div>
+      <div><span style="color:#7f8ea1">MAX </span>{{ statMax }}</div>
+      <div><span style="color:#7f8ea1">AVG </span>{{ statAvg }}</div>
+      <div style="flex:1"></div>
+      <div style="color:#7f8ea1">{{ statSpan }}</div>
+    </div>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ isHistory }}" hint-placeholder-val="{{ false }}">
+  <div data-screen-label="History" style="flex:1;padding:16px 24px;max-width:860px">
+    <div style="display:flex;align-items:center;margin-bottom:12px">
+      <div style="font-weight:700;font-size:16px">Run history</div>
+      <div style="flex:1"></div>
+      <button onClick="{{ clearHistory }}" style="padding:8px 14px;border:1px solid #232b37;border-radius:7px;background:#151b24;color:#7f8ea1;font-weight:600;cursor:pointer;font-family:'IBM Plex Sans',sans-serif">Clear</button>
+    </div>
+    <sc-if value="{{ noHistory }}" hint-placeholder-val="{{ true }}">
+      <div style="color:#7f8ea1;padding:30px;border:1px dashed #232b37;border-radius:10px;text-align:center">No completed runs yet.</div>
+    </sc-if>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <sc-for list="{{ historyRows }}" as="h" hint-placeholder-count="3">
+        <div style="display:flex;align-items:center;gap:16px;background:#12161d;border:1px solid #222b37;border-radius:8px;padding:12px 16px">
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#7f8ea1;width:150px">{{ h.time }}</div>
+          <div style="font-size:13px">{{ h.summary }}</div>
+          <div style="flex:1"></div>
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:700;color:{{ h.color }}">{{ h.verdict }}</div>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ isMeter }}" hint-placeholder-val="{{ false }}">
+  <div data-screen-label="Meter" style="flex:1;padding:16px 24px;display:grid;grid-template-columns:520px 1fr;gap:16px;align-items:start">
+    <div style="background:#12161d;border:1px solid #222b37;border-radius:10px;padding:16px">
+      <div style="font-weight:700;margin-bottom:10px">Instrument</div>
+      <div style="display:flex;background:#0e1218;border:1px solid #232b37;border-radius:7px;overflow:hidden;margin-bottom:10px">
+        <div onClick="{{ setSimMode }}" style="flex:1;text-align:center;padding:7px;font-size:12px;font-weight:600;cursor:pointer;background:{{ simBg }};color:{{ simColor }}">Simulated</div>
+        <div onClick="{{ setLiveMode }}" style="flex:1;text-align:center;padding:7px;font-size:12px;font-weight:600;cursor:pointer;background:{{ liveBg }};color:{{ liveColor }}">Live bridge</div>
+      </div>
+      <div style="font-size:12px;color:#7f8ea1;margin-bottom:10px">{{ modeExplain }}</div>
+      <div style="font-size:11px;color:#7f8ea1;font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">VISA resource · "auto" finds the USB meter</div>
+      <input value="{{ visa }}" onChange="{{ setVisa }}" style="width:100%;box-sizing:border-box;background:#0e1218;border:1px solid #232b37;border-radius:6px;color:#dbe3ee;padding:9px 10px;font-family:'IBM Plex Mono',monospace;font-size:12px"></input>
+      <sc-if value="{{ isLive }}" hint-placeholder-val="{{ false }}">
+        <div style="font-size:11px;color:#7f8ea1;font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin:10px 0 4px">Bridge URL</div>
+        <input value="{{ bridgeUrl }}" onChange="{{ setBridgeUrl }}" style="width:100%;box-sizing:border-box;background:#0e1218;border:1px solid #232b37;border-radius:6px;color:#dbe3ee;padding:9px 10px;font-family:'IBM Plex Mono',monospace;font-size:12px"></input>
+        <div style="font-size:12px;color:#7f8ea1;margin-top:8px">Start <span style="font-family:'IBM Plex Mono',monospace;color:#9fb0c3">python dm3068_bridge.py</span> on this PC first.</div>
+      </sc-if>
+      <button onClick="{{ connectToggle }}" style="margin-top:10px;width:100%;padding:10px;border:none;border-radius:7px;font-weight:700;cursor:pointer;font-family:'IBM Plex Sans',sans-serif;background:{{ connBtnBg }};color:{{ connBtnColor }}">{{ connBtnLabel }}</button>
+      <div style="margin-top:10px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:#7f8ea1;white-space:pre-wrap">{{ idnText }}</div>
+    </div>
+    <div style="background:#12161d;border:1px solid #222b37;border-radius:10px;padding:16px">
+      <div style="font-weight:700;margin-bottom:10px">Measurement quality</div>
+      <div style="font-size:11px;color:#7f8ea1;font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Integration time (NPLC)</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <sc-for list="{{ nplcChips }}" as="n" hint-placeholder-count="4">
+          <div onClick="{{ n.set }}" style="flex:1;min-width:66px;text-align:center;padding:8px 6px;border-radius:7px;cursor:pointer;border:1px solid #232b37;background:{{ n.bg }};color:{{ n.color }}">
+            <div style="font-size:13px;font-weight:700">{{ n.label }}</div>
+            <div style="font-size:11px;color:#7f8ea1;font-family:'IBM Plex Mono',monospace">{{ n.plc }}</div>
+          </div>
+        </sc-for>
+      </div>
+      <div style="font-size:12px;color:#7f8ea1;margin-top:8px">{{ nplcNote }}</div>
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <div onClick="{{ autoZeroToggle }}" style="flex:1;text-align:center;padding:9px;border-radius:7px;cursor:pointer;font-weight:600;font-size:13px;border:1px solid #232b37;background:{{ azBg }};color:{{ azColor }}">{{ azLabel }}</div>
+        <div onClick="{{ soundToggle }}" style="flex:1;text-align:center;padding:9px;border-radius:7px;cursor:pointer;font-weight:600;font-size:13px;border:1px solid #232b37;background:{{ sndBg }};color:{{ sndColor }}">{{ sndLabel }}</div>
+      </div>
+    </div>
+    <div style="background:#12161d;border:1px solid #222b37;border-radius:10px;padding:16px;font-size:13px;color:#9fb0c3;line-height:1.6">
+      <div style="font-weight:700;color:#dbe3ee;margin-bottom:8px">How readings are taken</div>
+      <div>Each test point sets the meter function explicitly (<span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#7f8ea1">:FUNC:… + autorange</span>), waits for autorange to settle, and discards the first readings — so no stale value or false OVERLOAD carries over from the previous point.</div>
+      <div style="margin-top:8px"><span style="color:#f2b34c;font-weight:600">OL</span> from the meter means <em>open circuit</em> (probes not in contact — normal between points in Ω / continuity / diode modes) or <em>over range</em> (reading beyond the range in V / A modes). BenchLink treats OL as "waiting for contact": it never fails a board, never enters the plot, and never gets captured.</div>
+      <div style="margin-top:8px">Capture requires the reading to be near the point's expected band and hold steady for the hold time — so touching the wrong pad or a drifting contact won't record.</div>
+    </div>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ showMiniTab }}" hint-placeholder-val="{{ false }}">
+  <div onClick="{{ goPlot }}" style="position:fixed;right:20px;bottom:20px;width:240px;background:#0e1218;border:1px solid #2a3a4d;border-radius:10px;padding:10px 12px;cursor:pointer;box-shadow:0 8px 24px rgba(0,0,0,.55);z-index:50" style-hover="border-color:#53c8f0">
+    <div style="display:flex;align-items:center;gap:7px;margin-bottom:6px">
+      <div style="width:8px;height:8px;border-radius:50%;background:{{ miniDot }};animation:pulse 1.2s infinite"></div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:700;color:{{ miniDot }}">{{ miniLabel }}</div>
+      <div style="flex:1"></div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#46e0a1;white-space:nowrap">{{ miniLast }}</div>
+    </div>
+    <svg viewBox="0 0 200 48" preserveAspectRatio="none" style="width:100%;height:44px;display:block">
+      <polyline points="{{ miniPoints }}" fill="none" stroke="#46e0a1" stroke-width="1.5" vector-effect="non-scaling-stroke"></polyline>
+    </svg>
+    <div style="font-size:10px;color:#7f8ea1;margin-top:4px;text-align:right">open live plot →</div>
+  </div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;holdSec&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:3,&quot;min&quot;:0.5,&quot;max&quot;:15,&quot;step&quot;:0.5,&quot;unit&quot;:&quot;s&quot;,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Probe mode (live)&quot;},&quot;nextDelay&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:2.5,&quot;min&quot;:0.5,&quot;max&quot;:10,&quot;step&quot;:0.5,&quot;unit&quot;:&quot;s&quot;,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Probe mode (live)&quot;},&quot;settlePct&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:5,&quot;min&quot;:1,&quot;max&quot;:20,&quot;step&quot;:1,&quot;unit&quot;:&quot;%&quot;,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Probe mode (live)&quot;},&quot;contactPct&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:200,&quot;min&quot;:50,&quot;max&quot;:1000,&quot;step&quot;:50,&quot;unit&quot;:&quot;% of limit span&quot;,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Probe mode (live)&quot;},&quot;funcSettleMs&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:900,&quot;min&quot;:200,&quot;max&quot;:3000,&quot;step&quot;:100,&quot;unit&quot;:&quot;ms&quot;,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Meter (live)&quot;},&quot;failRate&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:0.08,&quot;min&quot;:0,&quot;max&quot;:0.5,&quot;step&quot;:0.01,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Simulation&quot;},&quot;updateMs&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:250,&quot;min&quot;:60,&quot;max&quot;:1000,&quot;step&quot;:20,&quot;unit&quot;:&quot;ms&quot;,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Simulation&quot;},&quot;glow&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Appearance&quot;}}">
+class Component extends DCLogic {
+  state = {
+    mode:'engineer', screen:'run',
+    connected:false, connecting:false, idn:'',
+    visa:'auto', connMode:'sim', bridgeUrl:'ws://localhost:9977',
+    running:false, paused:false, di:0, si:0, dwell:0,
+    liveValue:null, olNow:false, results:{}, statuses:[], lastDone:null,
+    boardName:'Modem Rev-A',
+    steps:[
+      {pin:'PSU', func:'Current DC', low:0.05, high:0.09, uLabel:'A'},
+      {pin:'TP8', func:'Resistance 2W', low:100e3, high:null, uLabel:'kΩ'},
+      {pin:'TP9', func:'Resistance 2W', low:100e3, high:null, uLabel:'kΩ'},
+      {pin:'TP2', func:'Resistance 2W', low:100, high:500, uLabel:'Ω'},
+      {pin:'TP11', func:'Resistance 2W', low:10e3, high:30e3, uLabel:'kΩ'},
+      {pin:'TP12', func:'Resistance 2W', low:500e3, high:1.5e6, uLabel:'kΩ'},
+      {pin:'TP14', func:'Resistance 2W', low:10e3, high:50e3, uLabel:'kΩ'},
+      {pin:'TP15', func:'Resistance 2W', low:6e3, high:8e3, uLabel:'kΩ'},
+      {pin:'TP8', func:'Voltage DC', low:39, high:41, uLabel:'V'},
+      {pin:'TP9', func:'Voltage DC', low:4.75, high:5.25, uLabel:'V'},
+      {pin:'TP2', func:'Voltage DC', low:3.27, high:3.33, uLabel:'V'},
+      {pin:'TP11', func:'Voltage DC', low:1.77, high:1.83, uLabel:'V'},
+      {pin:'TP12', func:'Voltage DC', low:1.17, high:1.23, uLabel:'V'},
+      {pin:'TP14', func:'Voltage DC', low:1.27, high:1.33, uLabel:'V'},
+      {pin:'TP15', func:'Voltage DC', low:1.27, high:1.33, uLabel:'V'},
+    ],
+    boardTypes:[], serials:[], snInput:'', snNotes:'',
+    log:['[SYS] BenchLink ready — connect the DM3068 to begin.'], history:[], selected:null, startedAt:null, elapsed:0,
+    recording:false, samples:[], plotFunc:null,
+    plotName:'', plotHold:false, holdSamples:[], plotWindow:0,
+    probeMode:true, probeUi:null, holdSecUi:null, nplc:1, autoZero:true, soundOn:false,
+    trigOn:false, trigEdge:'above', trigLevel:'', triggered:false, trigAuto:false,
+    importMsg:'', importOk:true,
+  };
+  FUNC = {'Voltage DC':':FUNC:VOLT:DC','Voltage AC':':FUNC:VOLT:AC','Resistance 2W':':FUNC:RES','Resistance 4W':':FUNC:FRES','Continuity':':FUNC:CONT','Diode':':FUNC:DIOD','Capacitance':':FUNC:CAP','Current DC':':FUNC:CURR:DC','Current AC':':FUNC:CURR:AC','Frequency':':FUNC:FREQ','Period':':FUNC:PER','Temperature':':FUNC:TEMP'};
+  SCPI = {'Voltage DC':':MEAS:VOLT:DC?','Voltage AC':':MEAS:VOLT:AC?','Resistance 2W':':MEAS:RES?','Resistance 4W':':MEAS:FRES?','Continuity':':MEAS:CONT?','Diode':':MEAS:DIOD?','Capacitance':':MEAS:CAP?','Current DC':':MEAS:CURR:DC?','Current AC':':MEAS:CURR:AC?','Frequency':':MEAS:FREQ?','Period':':MEAS:PER?','Temperature':':MEAS:TEMP?'};
+  AUTORANGE = {'Voltage DC':':VOLT:DC:RANG:AUTO ON','Voltage AC':':VOLT:AC:RANG:AUTO ON','Resistance 2W':':RES:RANG:AUTO ON','Resistance 4W':':FRES:RANG:AUTO ON','Current DC':':CURR:DC:RANG:AUTO ON','Current AC':':CURR:AC:RANG:AUTO ON','Frequency':':FREQ:VOLT:RANG:AUTO ON','Capacitance':':CAP:RANG:AUTO ON'};
+  NPLC = {'Voltage DC':':VOLT:DC:NPLC','Current DC':':CURR:DC:NPLC','Resistance 2W':':RES:NPLC','Resistance 4W':':FRES:NPLC'};
+  UNITS = {'Voltage DC':'V','Voltage AC':'V','Resistance 2W':'Ω','Resistance 4W':'Ω','Continuity':'Ω','Diode':'V','Capacitance':'F','Current DC':'A','Current AC':'A','Frequency':'Hz','Period':'s','Temperature':'°C'};
+  SHORT = {'Voltage DC':'V','Voltage AC':'V~','Resistance 2W':'R','Resistance 4W':'R4','Continuity':'CONT','Diode':'D','Capacitance':'C','Current DC':'I','Current AC':'I~','Frequency':'F','Period':'T','Temperature':'°C'};
+  PRE = {'Ω':[['mΩ',1e-3],['Ω',1],['kΩ',1e3],['MΩ',1e6]],'V':[['µV',1e-6],['mV',1e-3],['V',1]],'A':[['µA',1e-6],['mA',1e-3],['A',1]],'F':[['pF',1e-12],['nF',1e-9],['µF',1e-6],['mF',1e-3]],'Hz':[['Hz',1],['kHz',1e3],['MHz',1e6]],'s':[['µs',1e-6],['ms',1e-3],['s',1]],'°C':[['°C',1]]};
+  PERSIST = ['boardName','steps','boardTypes','serials','results','statuses','history','visa','connMode','bridgeUrl','probeMode','holdSecUi','mode','plotName','trigOn','trigEdge','trigLevel','trigAuto','lastDone','nplc','autoZero','soundOn'];
+  prefixesFor(func){ return this.PRE[this.UNITS[func]]||[[this.UNITS[func],1]]; }
+  multFor(func,label){ const p=this.prefixesFor(func).find(x=>x[0]===label); return p?p[1]:1; }
+  defaultUnit(func){ const u=this.UNITS[func]; return u==='F'?'µF':u; }
+  fmt(v,unit){
+    if(v==null||!isFinite(v)) return '——';
+    if(unit==='°C') return v.toFixed(3)+' °C';
+    const P=[[1e6,'M'],[1e3,'k'],[1,''],[1e-3,'m'],[1e-6,'µ'],[1e-9,'n']];
+    let f=1,p='';
+    for(const [fac,pre] of P){ if(Math.abs(v)>=fac||fac===1e-9){ f=fac;p=pre;break; } }
+    if(v===0){f=1;p='';}
+    return Number((v/f).toPrecision(6)).toString()+' '+p+unit;
+  }
+  fmtLimits(s){
+    const u=this.UNITS[s.func];
+    return s.high==null?('≥ '+this.fmt(s.low,u)):(this.fmt(s.low,u)+' … '+this.fmt(s.high,u));
+  }
+  cellVal(v,s){
+    const uLabel=s.uLabel||this.defaultUnit(s.func);
+    return Number((v/this.multFor(s.func,uLabel)).toPrecision(4)).toString();
+  }
+  passOf(v,s){ return s.high==null?v>=s.low:(v>=s.low&&v<=s.high); }
+  classify(v,s){
+    if(!this.passOf(v,s)) return 'fail';
+    const span=s.high==null?s.low:(s.high-s.low);
+    if(s.high==null) return v<s.low*1.15?'near':'pass';
+    if(v-s.low<span*0.15||s.high-v<span*0.15) return 'near';
+    return 'pass';
+  }
+  devCount(){ return this.state.serials.length; }
+  stepsLen(){ return Math.max(this.state.steps.length,1); }
+  specFor(di,si){ return this.state.steps[si]; }
+  nameFor(i){ const e=this.state.serials[i]; return e?('SN '+e.sn):('#'+(i+1)); }
+  inGate(v,s){
+    if(s.high==null) return v>=s.low*0.2;
+    const c=(s.low+s.high)/2, span=Math.max(s.high-s.low,1e-12);
+    const m=Math.max(span*((this.props.contactPct ?? 200)/100),Math.abs(c)*0.25);
+    return v>=s.low-m&&v<=s.high+m;
+  }
+  autoSpecFor(func){
+    const st=this.state;
+    if(st.running){ const s=this.specFor(st.di,st.si); if(s) return s; }
+    return st.steps.find(x=>x.func===func)||null;
+  }
+  componentDidMount(){
+    try{
+      const raw=localStorage.getItem('benchlink3-state')||localStorage.getItem('benchlink2-state');
+      if(raw){
+        const data=JSON.parse(raw), patch={};
+        this.PERSIST.forEach(k=>{ if(data[k]!==undefined) patch[k]=data[k]; });
+        this.setState(patch);
+      }
+    }catch(err){}
+    this._onKey=e=>{
+      const tag=(e.target&&e.target.tagName)||'';
+      if(/INPUT|SELECT|TEXTAREA/.test(tag)) return;
+      if(this.state.screen!=='run') return;
+      if(e.code==='Space'){ e.preventDefault(); this.state.running?this.stopRun():this.start(); }
+      else if(this.state.running&&e.code==='ArrowRight'){ e.preventDefault(); this.skipPoint(); }
+      else if(this.state.running&&e.code==='ArrowLeft'){ e.preventDefault(); this.redoLast(); }
+    };
+    window.addEventListener('keydown',this._onKey);
+  }
+  stopRun(){ clearInterval(this._iv); this._probe=null; this.setState({running:false,probeUi:null,olNow:false}); this.log('[RUN] Aborted by user'); }
+  beep(pass){
+    if(!this.state.soundOn) return;
+    try{
+      const ctx=this._actx||(this._actx=new (window.AudioContext||window.webkitAudioContext)());
+      const o=ctx.createOscillator(), g=ctx.createGain(); o.connect(g); g.connect(ctx.destination);
+      o.type='sine'; o.frequency.value=pass?880:196;
+      const t=ctx.currentTime;
+      g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.18,t+0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001,t+(pass?0.16:0.45));
+      o.start(t); o.stop(t+(pass?0.18:0.47));
+    }catch(e){}
+  }
+  batchStats(){
+    const st=this.state, N=this.devCount(), steps=st.steps;
+    const perStep=steps.map((s,j)=>{
+      const vals=[];
+      for(let i=0;i<N;i++){ const r=st.results[i+'-'+j]; if(r&&!r.skip&&r.v!=null&&isFinite(r.v)) vals.push(r.v); }
+      const n=vals.length; let mean=0,sd=0,min=null,max=null,pass=0,near=0,fail=0;
+      if(n){
+        mean=vals.reduce((a,b)=>a+b,0)/n;
+        sd=n>1?Math.sqrt(vals.reduce((a,b)=>a+(b-mean)*(b-mean),0)/(n-1)):0;
+        min=Math.min(...vals); max=Math.max(...vals);
+        vals.forEach(v=>{const g=this.classify(v,s); if(g==='fail')fail++; else if(g==='near')near++; else pass++;});
+      }
+      let cp=null,cpk=null;
+      if(n>1&&sd>0){
+        if(s.high!=null){ cp=(s.high-s.low)/(6*sd); cpk=Math.min((s.high-mean)/(3*sd),(mean-s.low)/(3*sd)); }
+        else cpk=(mean-s.low)/(3*sd);
+      }
+      return {s,j,n,mean,sd,min,max,pass,near,fail,cp,cpk};
+    });
+    let fullyTested=0, firstPass=0;
+    for(let i=0;i<N;i++){
+      let tested=0, anyFail=false;
+      for(let j=0;j<steps.length;j++){ const r=st.results[i+'-'+j]; if(r&&!r.skip){tested++; if(!r.pass)anyFail=true;} }
+      if(steps.length&&tested===steps.length){ fullyTested++; if(!anyFail) firstPass++; }
+    }
+    return {perStep, fpy:fullyTested?firstPass/fullyTested:0, fullyTested, firstPass, N};
+  }
+  retestFailures(){
+    const st=this.state;
+    const failed=st.serials.filter((_,i)=>st.statuses[i]==='fail');
+    if(!failed.length){ this.log('[RETEST] No failed boards to retest'); return; }
+    this._t={}; clearInterval(this._iv);
+    this.setState({serials:failed,results:{},statuses:Array(failed.length).fill('pending'),selected:null,screen:'run',lastDone:null,running:false});
+    this.log('[RETEST] Batch narrowed to '+failed.length+' failed board(s) — press Start to re-run');
+  }
+  componentDidUpdate(){
+    clearTimeout(this._saveT);
+    this._saveT=setTimeout(()=>{
+      try{
+        const out={};
+        this.PERSIST.forEach(k=>{ out[k]=this.state[k]; });
+        localStorage.setItem('benchlink3-state',JSON.stringify(out));
+      }catch(err){}
+    },400);
+  }
+  log(line){ const t=new Date().toLocaleTimeString([],{hour12:false}); this.setState(st=>({log:[t+'  '+line,...st.log].slice(0,200)})); }
+  target(di,si){
+    this._t=this._t||{};
+    const k=di+'-'+si;
+    if(!this._t[k]){
+      const s=this.specFor(di,si);
+      const fail=Math.random()<(this.props.failRate ?? 0.08);
+      let v;
+      if(s.high==null) v=fail? s.low*(0.2+Math.random()*0.5) : s.low*(1.5+Math.random()*2);
+      else{
+        const c=(s.low+s.high)/2, span=Math.max(s.high-s.low,1e-9);
+        if(fail) v=Math.random()<0.5? s.high+span*(0.1+Math.random()*0.4) : s.low-span*(0.1+Math.random()*0.4);
+        else v=c+(Math.random()-0.5)*span*0.55;
+        if(s.func!=='Temperature'&&s.func!=='Voltage DC') v=Math.max(v,0);
+      }
+      this._t[k]={v,fail};
+    }
+    return this._t[k];
+  }
+  recordSample(v,func){
+    const st=this.state;
+    if(!st.recording) return;
+    if(st.trigOn&&!st.triggered){
+      let crossed;
+      if(st.trigAuto){
+        const s=this.autoSpecFor(func);
+        if(!s) return;
+        if(s.high==null) crossed=v>=s.low*0.5;
+        else{ const m=Math.max(s.high-s.low,1e-12)*0.1; crossed=v>=s.low-m&&v<=s.high+m; }
+      }else{
+        const lvl=parseFloat(st.trigLevel);
+        if(!isFinite(lvl)) return;
+        crossed=st.trigEdge==='above'?v>=lvl:v<=lvl;
+      }
+      if(!crossed) return;
+      this.setState({triggered:true});
+      this.log('[REC] Triggered at '+this.fmt(v,this.UNITS[func])+(st.trigAuto?' (auto band)':''));
+    }
+    this.setState(x=>({samples:[...x.samples,{t:Date.now(),v,func}].slice(-1500)}));
+  }
+  plotGeom(pts,w,h){
+    if(pts.length<2) return null;
+    const vs=pts.map(p=>p.v);
+    let mn=Math.min(...vs), mx=Math.max(...vs);
+    if(mn===mx){ const d=Math.abs(mn)*0.01||1; mn-=d; mx+=d; }
+    const pad=(mx-mn)*0.12; mn-=pad; mx+=pad;
+    const t0=pts[0].t, t1=Math.max(pts[pts.length-1].t,t0+1);
+    const points=pts.map(p=>((p.t-t0)/(t1-t0)*w).toFixed(1)+','+((h-(p.v-mn)/(mx-mn)*h)).toFixed(1)).join(' ');
+    return {points,mn,mx,t0,t1,y:v=>h-(v-mn)/(mx-mn)*h};
+  }
+  start(){
+    const st=this.state;
+    if(!st.connected||!st.serials.length||!st.steps.length) return;
+    this._t={}; this._probe=null; this._errN=0;
+    this.setState({running:true,paused:false,di:0,si:0,dwell:0,results:{},selected:null,probeUi:null,olNow:false,lastDone:null,
+      statuses:Array(this.devCount()).fill('pending'),startedAt:Date.now(),elapsed:0});
+    this.log('[RUN] Started · '+this.devCount()+' boards × '+this.stepsLen()+' points ("'+st.boardName+'")');
+    if(st.connMode==='live'){
+      this._lastFunc=null;
+      this.wsSend({op:'write',scpi:'*CLS'}).then(()=>this.log('[SCPI] *CLS — status cleared, functions re-set per point')).catch(()=>{});
+    }
+    clearInterval(this._iv);
+    this._iv=setInterval(()=>this.tick(), this.props.updateMs ?? (st.connMode==='live'?250:120));
+  }
+  finish(){
+    clearInterval(this._iv);
+    const st=this.state, total=this.devCount();
+    const fails=st.statuses.filter(x=>x==='fail').length;
+    const run={time:new Date().toLocaleString(), devices:total, fails, dur:Math.round((Date.now()-st.startedAt)/1000), board:st.boardName, live:st.connMode==='live'};
+    this.setState(s=>({running:false, history:[run,...s.history].slice(0,100)}));
+    this.log('[RUN] Complete · '+(total-fails)+'/'+total+' boards passed · '+run.dur+'s');
+  }
+  tick(){
+    const st=this.state;
+    if(!st.running||st.paused) return;
+    if(st.startedAt) this.setState({elapsed:Math.round((Date.now()-st.startedAt)/1000)});
+    if(st.connMode==='live'){ this.liveStep(); return; }
+    const t=this.target(st.di,st.si);
+    const jit=t.v*(1+(Math.random()-0.5)*4e-5);
+    this.recordSample(jit,this.specFor(st.di,st.si).func);
+    if(st.dwell<3){ this.setState({liveValue:jit,dwell:st.dwell+1}); return; }
+    this.commitMeasurement(jit);
+  }
+  async ensureFunc(f){
+    const now=Date.now();
+    if(this._lastFunc!==f){
+      await this.wsSend({op:'write',scpi:this.FUNC[f]});
+      if(this.AUTORANGE[f]) await this.wsSend({op:'write',scpi:this.AUTORANGE[f]});
+      if(this.NPLC[f]) await this.wsSend({op:'write',scpi:this.NPLC[f]+' '+(this.state.nplc ?? 1)});
+      if(['Voltage DC','Current DC','Resistance 2W','Resistance 4W'].includes(f))
+        await this.wsSend({op:'write',scpi:':ZERO:AUTO '+((this.state.autoZero ?? true)?'ON':'OFF')});
+      this._lastFunc=f;
+      this._settleUntil=now+(this.props.funcSettleMs ?? 900)+(this.state.nplc ?? 1)*20;
+      this._discard=3;
+      this.log('[SCPI] '+this.FUNC[f]+(this.AUTORANGE[f]?' + autorange':'')+(this.NPLC[f]?' + '+(this.state.nplc ?? 1)+' PLC':'')+' · settling…');
+      return false;
+    }
+    if(now<this._settleUntil) return false;
+    if(this._discard>0){ await this.wsSend({op:'query',scpi:this.SCPI[f]}); this._discard--; return false; }
+    return true;
+  }
+  async liveStep(){
+    if(this._busy) return; this._busy=true;
+    const st=this.state, s=this.specFor(st.di,st.si);
+    try{
+      if(!(await this.ensureFunc(s.func))){ this._busy=false; return; }
+      const raw=await this.wsSend({op:'query',scpi:this.SCPI[s.func]});
+      this._errN=0;
+      if(!this.state.running){ this._busy=false; return; }
+      const v=parseFloat(raw);
+      const now=Date.now();
+      const ol=!isFinite(v)||Math.abs(v)>=9e36;
+      const valid=!ol;
+      const contact=valid&&this.inGate(v,s);
+      if(valid) this.recordSample(v,s.func);
+      if(ol!==!!st.olNow) this.log(ol?'[MEAS] OL — open circuit / over range (no contact yet)':'[MEAS] Signal acquired');
+      this.setState({liveValue:valid?v:null,olNow:ol});
+      if(!st.probeMode){
+        if(!valid) throw new Error('bad reading: '+raw);
+        this.commitMeasurement(v); this._busy=false; return;
+      }
+      const holdMs=(st.holdSecUi ?? this.props.holdSec ?? 3)*1000;
+      const nextMs=(this.props.nextDelay ?? 2.5)*1000;
+      const tolFrac=(this.props.settlePct ?? 5)/100;
+      const p=this._probe||(this._probe={phase:'touch',buf:[],commitV:null,t0:now});
+      let ui=null;
+      if(p.phase==='touch'){
+        if(contact){ p.phase='hold'; p.buf=[{t:now,v}]; ui={phase:'hold',pct:0}; }
+        else ui={phase:'touch',pct:0};
+      } else if(p.phase==='hold'){
+        if(!contact){ p.phase='touch'; p.buf=[]; ui={phase:'touch',pct:0}; }
+        else{
+          p.buf.push({t:now,v});
+          p.buf=p.buf.filter(x=>x.t>=now-holdMs-300);
+          const vs=p.buf.map(x=>x.v), mn=Math.min(...vs), mx=Math.max(...vs);
+          const med=vs.slice().sort((a,b)=>a-b)[vs.length>>1];
+          const spanRef=s.high==null?s.low:(s.high-s.low);
+          const tolAbs=Math.max(tolFrac*Math.abs(med),spanRef*0.05);
+          if(mx-mn>tolAbs){ p.buf=p.buf.slice(-2); ui={phase:'hold',pct:0}; }
+          else{
+            const span=now-p.buf[0].t;
+            if(span>=holdMs){
+              p.phase='release'; p.commitV=med; p.buf=[];
+              ui={phase:'release',val:med};
+              this.log('[PROBE] Captured '+this.fmt(med,this.UNITS[s.func])+' — lift probe');
+            } else ui={phase:'hold',pct:Math.min(span/holdMs,1)};
+          }
+        }
+      } else if(p.phase==='release'){
+        const spanRef=s.high==null?s.low:(s.high-s.low);
+        const released=!contact||Math.abs(v-p.commitV)>Math.max(Math.abs(p.commitV)*0.2,spanRef*0.5);
+        if(released){ p.phase='wait'; p.t0=now; ui={phase:'wait',pct:0}; }
+        else ui={phase:'release',val:p.commitV};
+      } else if(p.phase==='wait'){
+        const el=now-p.t0;
+        if(el>=nextMs){
+          const cv=p.commitV;
+          p.phase='touch'; p.buf=[]; p.commitV=null;
+          this.setState({probeUi:{phase:'touch',pct:0}});
+          this.commitMeasurement(cv);
+          this._busy=false; return;
+        }
+        ui={phase:'wait',pct:el/nextMs};
+      }
+      this.setState({probeUi:ui});
+    }catch(e){
+      this._errN=(this._errN||0)+1;
+      if(this._errN>=5){
+        this.log('[MEAS] '+e.message+' — 5 consecutive errors, run stopped');
+        clearInterval(this._iv); this.setState({running:false}); this._errN=0;
+      } else {
+        this.log('[MEAS] '+e.message+' — retrying ('+this._errN+'/5)');
+      }
+    }
+    this._busy=false;
+  }
+  advance(results,extra){
+    const st=this.state, L=this.stepsLen();
+    let di=st.di, si=st.si+1, statuses=st.statuses, lastDone=st.lastDone;
+    if(si>=L){
+      let devPass=true;
+      for(let j=0;j<L;j++){ const r=results[di+'-'+j]; if(!r||(!r.skip&&!r.pass)) devPass=false; }
+      statuses=[...statuses]; statuses[di]=devPass?'pass':'fail';
+      lastDone={name:this.nameFor(di),pass:devPass};
+      this.log('[RUN] '+lastDone.name+' complete — '+(devPass?'PASS':'FAIL'));
+      this.beep(devPass);
+      di++; si=0;
+    } else if(statuses[di]!=='testing'){ statuses=[...statuses]; statuses[di]='testing'; }
+    const rearm=st.trigOn&&st.trigAuto?{triggered:false}:{};
+    if(di>=this.devCount()){ this.setState({results,statuses,dwell:0,lastDone,...rearm,...extra}); this.finish(); return; }
+    if(statuses[di]==='pending'){ statuses=[...statuses]; statuses[di]='testing'; }
+    this.setState({results,statuses,di,si,dwell:0,lastDone,...rearm,...extra});
+  }
+  commitMeasurement(v){
+    const st=this.state, s=this.specFor(st.di,st.si);
+    const pass=this.passOf(v,s);
+    const results={...st.results,[st.di+'-'+st.si]:{v,pass}};
+    this.log('[MEAS] '+this.nameFor(st.di)+' '+s.pin+' '+s.func+' = '+this.fmt(v,this.UNITS[s.func])+' '+(pass?'PASS':'FAIL'));
+    this.advance(results,{liveValue:v});
+  }
+  skipPoint(){
+    const st=this.state;
+    if(!st.running) return;
+    const s=this.specFor(st.di,st.si);
+    const results={...st.results,[st.di+'-'+st.si]:{skip:true}};
+    this.log('[RUN] Skipped '+this.nameFor(st.di)+' '+s.pin+' '+s.func);
+    this._probe=null;
+    this.advance(results,{probeUi:null});
+  }
+  redoLast(){
+    const st=this.state, L=this.stepsLen();
+    if(!st.running) return;
+    let di=st.di, si=st.si;
+    if(di===0&&si===0) return;
+    if(si>0) si--; else { di--; si=L-1; }
+    const results={...st.results}; delete results[di+'-'+si];
+    const statuses=[...st.statuses]; statuses[di]='testing';
+    this._probe=null;
+    const s=this.specFor(di,si);
+    this.log('[RUN] Redoing '+this.nameFor(di)+' '+s.pin+' '+s.func);
+    this.setState({results,statuses,di,si,dwell:0,probeUi:null});
+  }
+  componentWillUnmount(){ clearInterval(this._iv); clearInterval(this._mv); clearTimeout(this._saveT); if(this._onKey) window.removeEventListener('keydown',this._onKey); if(this._ws){ try{this._ws.close();}catch(e){} } }
+  async monitorTick(){
+    const st=this.state;
+    if(!st.recording||st.running||!st.connected) return;
+    const f=st.plotFunc||(st.steps[0]&&st.steps[0].func)||'Voltage DC';
+    if(st.connMode==='live'){
+      if(this._mbusy) return; this._mbusy=true;
+      try{
+        if(!(await this.ensureFunc(f))){ this._mbusy=false; return; }
+        const raw=await this.wsSend({op:'query',scpi:this.SCPI[f]});
+        const v=parseFloat(raw);
+        if(isFinite(v)&&Math.abs(v)<9e36) this.recordSample(v,f);
+      }catch(e){ this.log('[MON] '+e.message); }
+      this._mbusy=false;
+    } else {
+      this._monBase=this._monBase||{};
+      if(this._monBase[f]==null){
+        const nom={'Voltage DC':5,'Voltage AC':230,'Resistance 2W':100,'Resistance 4W':100,'Continuity':0.2,'Diode':0.6,'Capacitance':1e-5,'Current DC':0.5,'Current AC':0.5,'Frequency':1000,'Period':1e-3,'Temperature':24};
+        this._monBase[f]=nom[f]||1;
+      }
+      this.recordSample(this._monBase[f]*(1+(Math.random()-0.5)*0.004),f);
+    }
+  }
+  wsSend(msg){
+    return new Promise((res,rej)=>{
+      if(!this._ws||this._ws.readyState!==1) return rej(new Error('bridge not connected'));
+      this._mid=(this._mid||0)+1; const id=this._mid; msg.id=id;
+      this._pend=this._pend||{};
+      const to=setTimeout(()=>{ delete this._pend[id]; rej(new Error('bridge timeout')); },5000);
+      this._pend[id]={res,rej,to};
+      this._ws.send(JSON.stringify(msg));
+    });
+  }
+  openBridge(){
+    const url=this.state.bridgeUrl.trim();
+    this.setState({connecting:true});
+    this.log('[BRIDGE] Connecting '+url+' …');
+    let ws;
+    try{ ws=new WebSocket(url); }catch(e){ this.setState({connecting:false}); this.log('[BRIDGE] '+e.message); return; }
+    this._ws=ws;
+    ws.onopen=async()=>{
+      this.log('[BRIDGE] Socket open · opening '+this.state.visa);
+      try{
+        const idn=await this.wsSend({op:'open',resource:this.state.visa});
+        this._lastFunc=null;
+        this.wsSend({op:'write',scpi:'*RST;*CLS'}).catch(()=>{});
+        this.setState({connecting:false,connected:true,idn:'*IDN? → '+idn});
+        this.log('[VISA] Connected · '+idn+' · meter reset');
+      }catch(e){ this.setState({connecting:false}); this.log('[VISA] Open failed: '+e.message); try{ws.close();}catch(e2){} }
+    };
+    ws.onmessage=ev=>{
+      try{
+        const m=JSON.parse(ev.data), p=this._pend&&this._pend[m.id];
+        if(p){ clearTimeout(p.to); delete this._pend[m.id]; m.ok?p.res(m.data):p.rej(new Error(m.error||'bridge error')); }
+      }catch(e){}
+    };
+    ws.onerror=()=>{ this.log('[BRIDGE] Socket error — is dm3068_bridge.py running on this PC?'); };
+    ws.onclose=()=>{
+      if(this.state.connected||this.state.connecting){ this.setState({connected:false,connecting:false,idn:''}); this.log('[BRIDGE] Disconnected'); }
+      this._ws=null;
+    };
+  }
+  importCsv(file){
+    const reader=new FileReader();
+    reader.onload=()=>{
+      try{
+        const lines=String(reader.result).split(/\r?\n/).filter(l=>l.trim());
+        const parse=l=>l.match(/("[^"]*"|[^,]*)(,|$)/g).map(c=>c.replace(/,$/,'').replace(/^"|"$/g,'').trim());
+        const head=parse(lines[0]).map(h=>h.toLowerCase());
+        let steps=[];
+        if(head.includes('measurement')&&(head.includes('point')||head.includes('pin'))){
+          const iP=head.indexOf('point')>=0?head.indexOf('point'):head.indexOf('pin');
+          const iM=head.indexOf('measurement'), iLo=head.indexOf('min'), iHi=head.indexOf('max'), iU=head.indexOf('unit');
+          for(let i=1;i<lines.length;i++){
+            const c=parse(lines[i]);
+            if(!c[iP]||!this.UNITS[c[iM]]) continue;
+            const u=c[iU]||this.defaultUnit(c[iM]), m=this.multFor(c[iM],u);
+            const hi=c[iHi]===''||c[iHi]==='—'?null:parseFloat(c[iHi])*m;
+            steps.push({pin:c[iP],func:c[iM],low:(parseFloat(c[iLo])||0)*m,high:isFinite(hi)?hi:null,uLabel:u});
+          }
+        } else if(head.some(h=>h.includes('resistance min'))){
+          const iC=0;
+          const iRlo=head.findIndex(h=>h.includes('resistance min'));
+          const iRhi=head.findIndex(h=>h.includes('resistance max'));
+          const iU=head.findIndex(h=>h==='r unit'||h.includes('unit'));
+          const iVlo=head.findIndex(h=>h.includes('voltage min'));
+          const iVhi=head.findIndex(h=>h.includes('voltage max'));
+          const rRows=[], vRows=[];
+          for(let i=1;i<lines.length;i++){
+            const c=parse(lines[i]);
+            if(!c[iC]) continue;
+            const u=(c[iU]||'Ω').replace('ohm','Ω'), m=this.multFor('Resistance 2W',u)||1;
+            const rhi=c[iRhi]===''||c[iRhi]==='—'?null:parseFloat(c[iRhi])*m;
+            rRows.push({pin:c[iC],func:'Resistance 2W',low:(parseFloat(c[iRlo])||0)*m,high:isFinite(rhi)?rhi:null,uLabel:this.PRE['Ω'].some(p=>p[0]===u)?u:'Ω'});
+            if(iVlo>=0&&c[iVlo]!=='') vRows.push({pin:c[iC],func:'Voltage DC',low:parseFloat(c[iVlo])||0,high:parseFloat(c[iVhi])||null,uLabel:'V'});
+          }
+          steps=[...rRows,...vRows];
+        }
+        if(!steps.length) throw new Error('no recognisable rows');
+        this._t={};
+        this.setState({steps,results:{},statuses:[],selected:null,importMsg:'Imported '+steps.length+' test points ✓',importOk:true});
+        this.log('[BOARD] Imported '+steps.length+' points from CSV');
+      }catch(e){
+        this.setState({importMsg:'Import failed: '+e.message,importOk:false});
+      }
+    };
+    reader.readAsText(file);
+  }
+  saveBoard(){
+    const st=this.state, name=st.boardName.trim()||'Untitled';
+    const boardTypes=[{name,steps:st.steps,saved:new Date().toLocaleDateString()},...st.boardTypes.filter(b=>b.name!==name)];
+    this.setState({boardTypes});
+    this.log('[BOARD] Saved "'+name+'" · '+st.steps.length+' points');
+  }
+  editStep(i,patch){ this.setState(x=>({steps:x.steps.map((s,j)=>j===i?{...s,...patch}:s)})); }
+  download(name,csv){
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'}));
+    a.download=name; a.click();
+  }
+  colHead(s){ return s.pin+' '+this.SHORT[s.func]+' ('+(s.uLabel||this.defaultUnit(s.func))+')'; }
+  exportCsv(){
+    const st=this.state, N=this.devCount(), L=this.stepsLen();
+    let csv='board,SN,'+st.steps.map(s=>'"'+this.colHead(s)+'"').join(',')+',result,notes\n';
+    for(let i=0;i<N;i++){
+      const e=st.serials[i];
+      const cells=st.steps.map((s,j)=>{
+        const r=st.results[i+'-'+j];
+        if(!r) return ''; if(r.skip) return 'skip';
+        return this.cellVal(r.v,s);
+      });
+      const stt=st.statuses[i];
+      csv+='"'+st.boardName+'","'+e.sn+'",'+cells.join(',')+','+(stt==='pass'?'PASS':stt==='fail'?'FAIL':'')+',"'+(e.notes||'')+'"\n';
+    }
+    csv+='\nTest criteria\npoint,measurement,min,max,unit\n';
+    st.steps.forEach(s=>{
+      const u=s.uLabel||this.defaultUnit(s.func), m=this.multFor(s.func,u);
+      csv+='"'+s.pin+'",'+s.func+','+Number((s.low/m).toPrecision(6))+','+(s.high==null?'—':Number((s.high/m).toPrecision(6)))+','+u+'\n';
+    });
+    this.download(st.boardName.replace(/\s+/g,'-')+'-results.csv',csv);
+    this.log('[EXPORT] Results saved · '+N+' rows × '+L+' points');
+  }
+  exportTemplateCsv(){
+    const st=this.state;
+    let csv='point,measurement,min,max,unit\n';
+    st.steps.forEach(s=>{
+      const u=s.uLabel||this.defaultUnit(s.func), m=this.multFor(s.func,u);
+      csv+='"'+s.pin+'",'+s.func+','+Number((s.low/m).toPrecision(6))+','+(s.high==null?'':Number((s.high/m).toPrecision(6)))+','+u+'\n';
+    });
+    this.download(st.boardName.replace(/\s+/g,'-')+'-template.csv',csv);
+  }
+  exportRecordingCsv(){
+    const st=this.state,u=this.UNITS,name=st.plotName.trim()||'dm3068-recording';
+    let csv='recording,timestamp,iso_time,type,value,unit\n';
+    st.samples.forEach(s=>{ csv+='"'+name+'",'+s.t+','+new Date(s.t).toISOString()+','+s.func+','+s.v+','+u[s.func]+'\n'; });
+    this.download(name+'.csv',csv);
+  }
+  renderVals(){
+    const st=this.state, P=this.props, units=this.UNITS;
+    const N=this.devCount(), L=this.stepsLen();
+    const navAll=['Run','Results','Analytics','Batch','Board','Plot','History','Meter'];
+    const navList=st.mode==='operator'?navAll.filter(n=>n!=='Meter'):navAll;
+    const navItems=navList.map(n=>{
+      const active=st.screen===n.toLowerCase();
+      return {label:n, go:()=>this.setState({screen:n.toLowerCase()}), bg:active?'#1d2634':'transparent', color:active?'#dbe3ee':'#7f8ea1'};
+    });
+    const step=this.specFor(st.di,st.si)||st.steps[0]||{func:'Voltage DC',low:0,high:1,pin:''};
+    const unit=units[step.func]||'';
+    const total=Math.max(N*L,1);
+    const done=Object.keys(st.results).length;
+    const passCount=Object.values(st.results).filter(r=>r.pass).length;
+    const skipCount=Object.values(st.results).filter(r=>r.skip).length;
+    const glow=(P.glow ?? true)?'0 0 18px rgba(70,224,161,.45)':'none';
+    const statuses=st.statuses.length===N?st.statuses:Array(N).fill('pending');
+    const COLORS={pending:'#3a4656',testing:'#53c8f0',pass:'#46e0a1',fail:'#ff5c6a'};
+    const GRADE={pass:'#46e0a1',near:'#f2b34c',fail:'#ff5c6a'};
+    const GBG={pass:'rgba(70,224,161,.08)',near:'rgba(242,179,76,.10)',fail:'rgba(255,92,106,.12)'};
+    const curBoard=Math.min(st.di,Math.max(N-1,0));
+    const pointRows=st.steps.map((s,j)=>{
+      const r=st.results[curBoard+'-'+j];
+      const isCur=st.running&&st.di===curBoard&&st.si===j;
+      const u2=s.uLabel||this.defaultUnit(s.func), m2=this.multFor(s.func,u2);
+      const expect=(s.high==null?('≥ '+Number((s.low/m2).toPrecision(4))):Number((s.low/m2).toPrecision(4))+' … '+Number((s.high/m2).toPrecision(4)))+' '+u2;
+      let val='—', color='#3a4656';
+      if(isCur){ val='▶ now'; color='#53c8f0'; }
+      else if(r&&r.skip){ val='skip'; color='#7f8ea1'; }
+      else if(r){ const g2=this.classify(r.v,s); val=this.cellVal(r.v,s)+' '+u2; color=GRADE[g2]; }
+      return {num:String(j+1).padStart(2,'0'), pin:s.pin, func:s.func, expect, val, color,
+        bg:isCur?'#16202c':'transparent'};
+    });
+    const boardChips=Array.from({length:N},(_,i)=>({
+      sn:st.serials[i].sn,
+      dot:COLORS[statuses[i]],
+      border:st.running&&st.di===i?'#53c8f0':'#222b37',
+      anim:st.running&&st.di===i?'pulse 1s infinite':'none',
+    }));
+    const mkStep=(s,i)=>{
+      const uLabel=s.uLabel||this.defaultUnit(s.func);
+      const mult=this.multFor(s.func,uLabel);
+      const lowStr=s.lowStr!=null?s.lowStr:String(s.low/mult);
+      const highStr=s.highStr!=null?s.highStr:(s.high==null?'':String(s.high/mult));
+      return {
+        num:String(i+1).padStart(2,'0'), pin:s.pin, func:s.func, lowStr, highStr, unit:uLabel,
+        unitOpts:this.prefixesFor(s.func).map(p=>({l:p[0]})),
+        setPin:e=>this.editStep(i,{pin:e.target.value}),
+        setFunc:e=>{ const nf=e.target.value; this.editStep(i,{func:nf,uLabel:this.defaultUnit(nf),lowStr:null,highStr:null}); },
+        setLow:e=>{ const raw=e.target.value; this.editStep(i,{lowStr:raw,low:(parseFloat(raw)||0)*mult}); },
+        setHigh:e=>{ const raw=e.target.value; this.editStep(i,{highStr:raw,high:raw.trim()===''?null:(parseFloat(raw)||0)*mult}); },
+        setUnit:e=>{ const nl=e.target.value, nm=this.multFor(s.func,nl);
+          this.editStep(i,{uLabel:nl,low:(parseFloat(lowStr)||0)*nm,high:highStr.trim()===''?null:(parseFloat(highStr)||0)*nm}); },
+        remove:()=>this.setState(x=>({steps:x.steps.filter((_,j)=>j!==i)})),
+      };
+    };
+    const resultRows=Array.from({length:N},(_,i)=>({
+      name:st.serials[i]?st.serials[i].sn:'#'+(i+1),
+      select:()=>this.setState({selected:i}),
+      bg:st.selected===i?'#161f2b':'transparent',
+      cells:st.steps.map((s,j)=>{
+        const r=st.results[i+'-'+j];
+        if(!r) return {text:'·',color:'#3a4656',bg:'transparent',tip:s.pin+' — pending'};
+        if(r.skip) return {text:'skip',color:'#7f8ea1',bg:'transparent',tip:s.pin+' — skipped'};
+        const g=this.classify(r.v,s);
+        return {text:this.cellVal(r.v,s),color:GRADE[g],bg:GBG[g],tip:s.pin+' '+this.SHORT[s.func]+' = '+this.fmt(r.v,units[s.func])+' ['+this.fmtLimits(s)+']'};
+      }),
+      status:statuses[i]==='pass'?'PASS':statuses[i]==='fail'?'FAIL':statuses[i]==='testing'?'TEST':'—',
+      statusColor:COLORS[statuses[i]],
+    }));
+    const critCells=st.steps.map(s=>{
+      const u=s.uLabel||this.defaultUnit(s.func), m=this.multFor(s.func,u);
+      return {text:s.high==null?('≥'+Number((s.low/m).toPrecision(4))):(Number((s.low/m).toPrecision(4))+'–'+Number((s.high/m).toPrecision(4)))};
+    });
+    const sel=st.selected;
+    const detailRows=sel==null?[]:st.steps.map((s,j)=>{
+      const r=st.results[sel+'-'+j], u=units[s.func];
+      if(r&&r.skip) return {step:s.pin+' '+s.func+'  ['+this.fmtLimits(s)+']',value:'skipped',color:'#7f8ea1'};
+      const g=r?this.classify(r.v,s):null;
+      return {step:s.pin+' '+s.func+'  ['+this.fmtLimits(s)+']',
+        value:r?this.fmt(r.v,u):'not measured', color:r?GRADE[g]:'#3a4656'};
+    });
+    const templateFuncs=[...new Set(st.steps.map(s=>s.func))];
+    const funcsIn=[...new Set(st.samples.map(x=>x.func))];
+    const pf=st.plotFunc||funcsIn[funcsIn.length-1]||templateFuncs[0]||'Voltage DC';
+    const pfUnit=units[pf]||'';
+    const chipFuncs=[...new Set([...templateFuncs,...(templateFuncs.includes(pf)?[]:[pf])])];
+    const baseSamples=st.plotHold?st.holdSamples:st.samples;
+    let pts=baseSamples.filter(x=>x.func===pf);
+    if(st.plotWindow>0&&pts.length){ const tw=pts[pts.length-1].t; pts=pts.filter(p=>p.t>=tw-st.plotWindow*1000); }
+    pts=pts.slice(-600);
+    const g=this.plotGeom(pts,800,260);
+    const gm=this.plotGeom(pts.slice(-120),200,48);
+    const lim=st.steps.find(s=>s.func===pf);
+    let loY=null,hiY=null;
+    if(g&&lim){
+      const yl=g.y(lim.low);
+      if(yl>=0&&yl<=260) loY=yl.toFixed(1);
+      if(lim.high!=null){ const yh=g.y(lim.high); if(yh>=0&&yh<=260) hiY=yh.toFixed(1); }
+    }
+    const lastPt=pts[pts.length-1];
+    const vsP=pts.map(p=>p.v);
+    const armed=st.recording&&st.trigOn&&!st.triggered;
+    const phaseMap={touch:0,hold:1,release:2,wait:3};
+    const curPhase=st.probeUi?phaseMap[st.probeUi.phase]:0;
+    const phaseChips=['TOUCH','HOLD','CAPTURED','NEXT'].map((l,i)=>({
+      label:l,
+      bg:i===curPhase?'#1d2634':'transparent',
+      color:i===curPhase?(i===0?'#7f8ea1':i===1?'#46e0a1':i===2?'#f2b34c':'#53c8f0'):'#3a4656',
+      border:i===curPhase?'#2a3a4d':'#1a212c',
+    }));
+    const _stats=this.batchStats();
+    const _cpkCol=c=>c==null?'#7f8ea1':c>=1.33?'#46e0a1':c>=1.0?'#f2b34c':'#ff5c6a';
+    const analyticsRows=_stats.perStep.map(ps=>{
+      const s=ps.s, u=s.uLabel||this.defaultUnit(s.func), m=this.multFor(s.func,u);
+      const disp=x=>x==null?'—':Number((x/m).toPrecision(4)).toString();
+      let hasBar=false,bandLeft='0%',bandWidth='0%',meanLeft='0%',rangeLeft='0%',rangeWidth='0%',meanColor='#46e0a1';
+      if(ps.n>0&&s.high!=null){
+        const span=Math.max(s.high-s.low,1e-12), aLo=s.low-0.25*span, aHi=s.high+0.25*span, rng=aHi-aLo;
+        const pos=v=>Math.max(0,Math.min(100,(v-aLo)/rng*100));
+        hasBar=true; bandLeft=pos(s.low)+'%'; bandWidth=(pos(s.high)-pos(s.low))+'%';
+        meanLeft=pos(ps.mean)+'%'; rangeLeft=pos(ps.min)+'%'; rangeWidth=Math.max(pos(ps.max)-pos(ps.min),0.6)+'%';
+        const gg=this.classify(ps.mean,s); meanColor=gg==='fail'?'#ff5c6a':gg==='near'?'#f2b34c':'#46e0a1';
+      }
+      return {pin:s.pin, func:this.SHORT[s.func], unit:u, n:ps.n,
+        mean:disp(ps.mean), sd:ps.n>1?disp(ps.sd):'—', range:ps.n?disp(ps.min)+'–'+disp(ps.max):'—',
+        limits:this.fmtLimits(s),
+        cp:ps.cp!=null?ps.cp.toFixed(2):'—', cpk:ps.cpk!=null?ps.cpk.toFixed(2):'—', cpkColor:_cpkCol(ps.cpk),
+        yieldT:ps.n?Math.round(ps.pass/ps.n*100)+'%':'—', fail:ps.fail,
+        hasBar,bandLeft,bandWidth,meanLeft,rangeLeft,rangeWidth,meanColor};
+    });
+    const _pareto=_stats.perStep.filter(p=>p.fail>0).sort((a,b)=>b.fail-a.fail);
+    const _maxFail=_pareto.length?_pareto[0].fail:1;
+    const paretoRows=_pareto.map(p=>({label:p.s.pin+' '+this.SHORT[p.s.func], fail:p.fail, barWidth:Math.round(p.fail/_maxFail*100)+'%'}));
+    return {
+      navItems, boardChip:st.boardName||'Untitled',
+      isAnalytics:st.screen==='analytics',
+      analyticsRows, noStats:!Object.keys(st.results).length,
+      fpyPct:_stats.fullyTested?Math.round(_stats.fpy*100)+'%':'—',
+      fpyDetail:_stats.firstPass+' of '+_stats.fullyTested+' boards passed first time',
+      boardsPass:statuses.filter(x=>x==='pass').length, boardsFail:statuses.filter(x=>x==='fail').length,
+      paretoRows, noPareto:!paretoRows.length,
+      retestFailures:()=>this.retestFailures(),
+      hasFailures:statuses.some(x=>x==='fail'), failBoardCount:statuses.filter(x=>x==='fail').length,
+      nplcChips:[{l:'Fast',v:0.2},{l:'Normal',v:1},{l:'Slow',v:10},{l:'Precision',v:100}].map(o=>({label:o.l,plc:o.v+' PLC',set:()=>this.setState({nplc:o.v}),bg:st.nplc===o.v?'#1d2634':'#0e1218',color:st.nplc===o.v?'#dbe3ee':'#7f8ea1'})),
+      autoZeroToggle:()=>this.setState(x=>({autoZero:!x.autoZero})),
+      azBg:st.autoZero?'#164534':'#151b24', azColor:st.autoZero?'#46e0a1':'#7f8ea1', azLabel:st.autoZero?'Auto-zero ON':'Auto-zero OFF',
+      soundToggle:()=>this.setState(x=>({soundOn:!x.soundOn})),
+      sndBg:st.soundOn?'#164534':'#151b24', sndColor:st.soundOn?'#46e0a1':'#7f8ea1', sndLabel:st.soundOn?'Sound cue ON':'Sound cue OFF',
+      nplcNote:'NPLC applies to DCV, DCI and resistance. Higher PLC = slower reading, more digits, better mains-noise rejection.',
+      goBoard:()=>this.setState({screen:'board'}),
+      isRun:st.screen==='run', isBoard:st.screen==='board', isBatch:st.screen==='batch',
+      isResults:st.screen==='results', isPlot:st.screen==='plot', isHistory:st.screen==='history', isMeter:st.screen==='meter',
+      isEngineer:st.mode==='engineer',
+      setOperator:()=>this.setState(x=>({mode:'operator',screen:x.screen==='meter'?'run':x.screen})),
+      setEngineer:()=>this.setState({mode:'engineer'}),
+      opBg:st.mode==='operator'?'#1d2634':'transparent', opColor:st.mode==='operator'?'#dbe3ee':'#7f8ea1',
+      engBg:st.mode==='engineer'?'#1d2634':'transparent', engColor:st.mode==='engineer'?'#dbe3ee':'#7f8ea1',
+      connDotColor:st.connected?'#46e0a1':st.connecting?'#f2b34c':'#3a4656',
+      connLabel:st.connected?(st.connMode==='live'?'DM3068 · live':'DM3068 · sim'):st.connecting?'connecting…':'offline',
+      recToggle:()=>{
+        const on=!st.recording; this.setState({recording:on,triggered:false});
+        clearInterval(this._mv);
+        if(on){ this._mv=setInterval(()=>this.monitorTick(),300); }
+        this.log(on?'[REC] Recording '+(st.trigOn?'armed':'started'):'[REC] Recording stopped · '+st.samples.length+' samples');
+      },
+      recBorder:st.recording?(armed?'#5a4a20':'#5a2730'):'#232b37',
+      recBg:st.recording?(armed?'#2a2416':'#2a161b'):'transparent',
+      recColor:st.recording?(armed?'#f2b34c':'#ff5c6a'):'#7f8ea1',
+      recDot:st.recording?(armed?'#f2b34c':'#ff5c6a'):'#3a4656',
+      recAnim:st.recording?'pulse 1.2s infinite':'none',
+      recHeadLabel:armed?'ARMED':'REC',
+      readoutDut:st.running?(this.nameFor(st.di)+' · '+step.pin):'IDLE',
+      readoutFunc:st.running?step.func.toUpperCase():'—',
+      readoutValue:st.olNow&&st.running?'OL':st.liveValue!=null?this.fmt(st.liveValue,unit):'— . ——— ———',
+      readoutColor:st.olNow&&st.running?'#f2b34c':'#46e0a1',
+      glowShadow:st.olNow&&st.running?'0 0 18px rgba(242,179,76,.4)':glow,
+      showOlHint:!!st.olNow&&st.running,
+      olHint:['Resistance 2W','Resistance 4W','Continuity','Diode'].includes(step.func)?'OL = open circuit — probes not in contact yet (normal between points)':'OL = reading beyond range — check probe contact and expected value',
+      barPct:Math.round(done/total*100)+'%',
+      limitLow:st.running?this.fmt(step.low,unit):'—',
+      limitHigh:st.running?(step.high==null?'(no max)':this.fmt(step.high,unit)):'—',
+      progressText:st.running?('BOARD '+(st.di+1)+'/'+N+' · POINT '+(st.si+1)+'/'+L):(done?done+'/'+total+' measurements':'ready'),
+      startStop:()=>st.running?(clearInterval(this._iv),this._probe=null,this.setState({running:false,probeUi:null,olNow:false}),this.log('[RUN] Aborted by user')):this.start(),
+      startLabel:st.running?'Stop':'Start run',
+      startBg:st.running?'#3a2026':'#164534', startColor:st.running?'#ff5c6a':'#46e0a1',
+      startDisabled:(!st.connected||!N)&&!st.running, startOpacity:((!st.connected||!N)&&!st.running)?0.4:1,
+      pauseToggle:()=>this.setState(x=>({paused:!x.paused})),
+      pauseLabel:st.paused?'Resume':'Pause', pauseDisabled:!st.running, pauseOpacity:st.running?1:0.4,
+      resetRun:()=>{clearInterval(this._iv);this._t={};this._probe=null;this._errN=0;this.setState({running:false,paused:false,results:{},statuses:Array(N).fill('pending'),liveValue:null,di:0,si:0,selected:null,elapsed:0,probeUi:null,olNow:false,lastDone:null});},
+      showRunTools:st.running,
+      redoLast:()=>this.redoLast(),
+      redoDisabled:!st.running||(st.di===0&&st.si===0),
+      redoOpacity:(!st.running||(st.di===0&&st.si===0))?0.4:1,
+      skipPoint:()=>this.skipPoint(),
+      probeToggle:()=>{ this._probe=null; this.setState(x=>({probeMode:!x.probeMode,probeUi:null})); this.log('[PROBE] Probe mode '+(!st.probeMode?'ON':'OFF — auto capture')); },
+      probeBtnLabel:st.probeMode?'Probe: ON':'Probe: OFF',
+      probeBtnBorder:st.probeMode?'#2a3a4d':'#232b37',
+      probeBtnColor:st.probeMode?'#53c8f0':'#7f8ea1',
+      showProbeBar:st.running&&st.connMode==='live'&&st.probeMode,
+      phaseChips,
+      probeMsg:(()=>{
+        const pu=st.probeUi, point=this.nameFor(st.di)+' · '+step.pin;
+        if(!pu||pu.phase==='touch') return '▸ TOUCH PROBE — '+point+'  (expect '+this.fmtLimits(step)+')';
+        if(pu.phase==='hold'){ const hs=st.holdSecUi ?? P.holdSec ?? 3; return 'HOLD STEADY … '+(pu.pct*hs).toFixed(1)+' / '+hs.toFixed(1)+' s'; }
+        if(pu.phase==='release') return '✓ CAPTURED '+this.fmt(pu.val,unit)+' — LIFT PROBE';
+        return 'NEXT POINT …';
+      })(),
+      probePct:(st.probeUi&&st.probeUi.pct!=null?Math.round(st.probeUi.pct*100):st.probeUi&&st.probeUi.phase==='release'?100:0)+'%',
+      probeColor:(()=>{ const ph=st.probeUi&&st.probeUi.phase; return ph==='hold'?'#46e0a1':ph==='release'?'#f2b34c':ph==='wait'?'#53c8f0':'#7f8ea1'; })(),
+      showChecklist:!st.running,
+      checklist:[
+        {mark:st.connected?'✓':'○', color:st.connected?'#46e0a1':'#7f8ea1',
+         textColor:st.connected?'#9fb0c3':'#dbe3ee',
+         label:st.connected?('Meter connected ('+(st.connMode==='live'?'live':'simulated')+')'):'Connect the DM3068'+(st.connMode==='live'?' — start the bridge first':' (simulated mode)'),
+         go:()=>st.mode==='operator'&&!st.connected&&st.connMode==='sim'?this.setState({connecting:true},setTimeout(()=>{this.setState({connecting:false,connected:true,idn:'*IDN? → RIGOL TECHNOLOGIES,DM3068 (simulated)'});this.log('[VISA] Connected (simulated)');},600)):this.setState({screen:'meter',mode:'engineer'})},
+        {mark:st.steps.length?'✓':'○', color:st.steps.length?'#46e0a1':'#7f8ea1',
+         textColor:'#9fb0c3',
+         label:'"'+st.boardName+'" — '+st.steps.length+' test points',
+         go:()=>this.setState({screen:'board'})},
+        {mark:N?'✓':'○', color:N?'#46e0a1':'#7f8ea1',
+         textColor:N?'#9fb0c3':'#dbe3ee',
+         label:N?('Batch ready — '+N+' board(s)'):'Add serial numbers to the batch',
+         go:()=>this.setState({screen:'batch'})},
+      ],
+      passCount, skipCount, failCount:done-passCount-skipCount, pendingCount:total-done,
+      lastDoneText:st.lastDone?('LAST '+st.lastDone.name+' '+(st.lastDone.pass?'PASS':'FAIL')):'',
+      lastDoneColor:st.lastDone?(st.lastDone.pass?'#46e0a1':'#ff5c6a'):'#7f8ea1',
+      elapsedText:st.elapsed+'s',
+      logLines:st.log,
+      currentBoardTitle:st.running?('Testing '+this.nameFor(st.di)):N?('Board preview — '+this.nameFor(curBoard)):'No boards in batch',
+      currentBoardMeta:st.running?('board '+(st.di+1)+' of '+N):(L+' points'),
+      pointRows,
+      batchMeta:N?(N+' boards · '+statuses.filter(x=>x==='pass').length+' pass · '+statuses.filter(x=>x==='fail').length+' fail'):'empty',
+      boardChips,
+      boardName:st.boardName, setBoardName:e=>this.setState({boardName:e.target.value}),
+      stepRows:st.steps.map(mkStep),
+      addStep:()=>this.setState(x=>({steps:[...x.steps,{pin:'TP?',func:'Voltage DC',low:0,high:1,uLabel:'V'}]})),
+      exportTemplate:()=>this.exportTemplateCsv(),
+      saveBoard:()=>this.saveBoard(),
+      boardRows:st.boardTypes.map((b,i)=>({name:b.name, meta:(b.steps?b.steps.length:0)+' pts · '+b.saved,
+        load:()=>{ this._t={}; this.setState({steps:b.steps,boardName:b.name,results:{},statuses:[],selected:null}); this.log('[BOARD] Loaded "'+b.name+'"'); },
+        remove:()=>this.setState(x=>({boardTypes:x.boardTypes.filter((_,j)=>j!==i)}))})),
+      noBoards:!st.boardTypes.length,
+      importCsv:e=>{ const f=e.target.files&&e.target.files[0]; if(f) this.importCsv(f); e.target.value=''; },
+      importMsg:st.importMsg, importMsgColor:st.importOk?'#46e0a1':'#ff5c6a',
+      snInput:st.snInput, setSnInput:e=>this.setState({snInput:e.target.value}),
+      snNotes:st.snNotes, setSnNotes:e=>this.setState({snNotes:e.target.value}),
+      addSerials:()=>{
+        const raw=st.snInput.split(/[,\s]+/).map(x=>x.trim()).filter(Boolean);
+        if(!raw.length) return;
+        const have=new Set(st.serials.map(e=>e.sn));
+        const uniq=[...new Set(raw)];
+        const sns=uniq.filter(sn=>!have.has(sn));
+        const dupes=uniq.filter(sn=>have.has(sn));
+        if(!sns.length){ this.setState({snInput:''}); this.log('[BATCH] All entered serials already in batch: '+dupes.join(', ')); return; }
+        const add=sns.map(sn=>({sn,notes:st.snNotes.trim()}));
+        this.setState(x=>({serials:[...x.serials,...add],snInput:'',snNotes:''}));
+        this.log('[BATCH] Added '+add.length+' board(s): '+sns.join(', ')+(dupes.length?' · skipped duplicate(s): '+dupes.join(', '):''));
+      },
+      newBatch:()=>{ this._t={}; clearInterval(this._iv); this.setState({serials:[],results:{},statuses:[],selected:null,running:false,lastDone:null}); this.log('[BATCH] New batch — boards and results cleared'); },
+      batchCountText:N?N+' board(s) · template "'+st.boardName+'" ('+L+' points each)':'empty',
+      serialRows:st.serials.map((e,i)=>({
+        num:String(i+1).padStart(2,'0'), sn:e.sn, notes:e.notes||'',
+        status:statuses[i]==='pass'?'PASS':statuses[i]==='fail'?'FAIL':statuses[i]==='testing'?'TEST':'—',
+        statusColor:COLORS[statuses[i]]||'#3a4656',
+        remove:()=>{this._t={};this.setState(x=>({serials:x.serials.filter((_,j)=>j!==i),results:{},statuses:[],selected:null}));},
+      })),
+      noSerials:!N,
+      stepHeads:st.steps.map(s=>({name:s.pin+' '+s.func+' ['+this.fmtLimits(s)+']',short:s.pin+' '+this.SHORT[s.func]})),
+      critCells, resultRows, hasDetail:sel!=null, noDetail:sel==null,
+      detailTitle:sel==null?'Detail':this.nameFor(sel)+' · measurements',
+      detailRows,
+      exportCsv:()=>this.exportCsv(),
+      historyRows:st.history.map(h=>({time:h.time,summary:(h.board?h.board+' · ':'')+h.devices+' boards · '+h.dur+'s'+(h.live?' · live meter':' · simulated'),
+        verdict:h.fails?h.fails+' FAIL':'ALL PASS', color:h.fails?'#ff5c6a':'#46e0a1'})),
+      noHistory:!st.history.length, clearHistory:()=>this.setState({history:[]}),
+      plotName:st.plotName, setPlotName:e=>this.setState({plotName:e.target.value}),
+      holdToggle:()=>st.plotHold?this.setState({plotHold:false,holdSamples:[]}):this.setState({plotHold:true,holdSamples:st.samples}),
+      holdLabel:st.plotHold?'Resume':'Hold', holdBg:st.plotHold?'#3a3020':'#151b24', holdColor:st.plotHold?'#f2b34c':'#dbe3ee',
+      windowChips:[{l:'10s',v:10},{l:'30s',v:30},{l:'1m',v:60},{l:'5m',v:300},{l:'All',v:0}].map(w=>({
+        label:w.l, set:()=>this.setState({plotWindow:w.v}),
+        bg:st.plotWindow===w.v?'#1d2634':'#0e1218', color:st.plotWindow===w.v?'#dbe3ee':'#7f8ea1'})),
+      tStart:g?new Date(g.t0).toLocaleTimeString([],{hour12:false}):'',
+      tMid:g?new Date((g.t0+g.t1)/2).toLocaleTimeString([],{hour12:false}):'',
+      tEnd:g?(new Date(g.t1).toLocaleTimeString([],{hour12:false})+(st.plotHold?' · HELD':'')):'',
+      tEndColor:st.plotHold?'#f2b34c':'#7f8ea1',
+      recBtnLabel:st.recording?(armed?'Armed — waiting for trigger':'Recording — tap to stop'):'Start recording',
+      recBtnBg:st.recording?(armed?'#3a3020':'#3a2026'):'#164534',
+      recBtnColor:st.recording?(armed?'#f2b34c':'#ff5c6a'):'#46e0a1',
+      sampleCountText:st.samples.length+' samples · showing '+pf,
+      plotChips:chipFuncs.map(f=>({label:f, set:()=>this.setState({plotFunc:f}),
+        bg:f===pf?'#1d2634':'#0e1218', color:f===pf?'#dbe3ee':'#7f8ea1'})),
+      otherFunc:'', setOtherFunc:e=>{ if(e.target.value) this.setState({plotFunc:e.target.value}); },
+      otherFuncOpts:Object.keys(units).filter(f=>!chipFuncs.includes(f)).map(f=>({f})),
+      plotPoints:g?g.points:'', plotEmpty:!g,
+      yMaxLabel:g?this.fmt(g.mx,pfUnit):'', yMinLabel:g?this.fmt(g.mn,pfUnit):'',
+      hasLimits:loY!=null||hiY!=null, loY:loY||'-10', hiY:hiY||'-10',
+      limitLegend:lim&&g?('limits '+this.fmtLimits(lim)):'',
+      statLast:lastPt?this.fmt(lastPt.v,pfUnit):'—',
+      statMin:vsP.length?this.fmt(Math.min(...vsP),pfUnit):'—',
+      statMax:vsP.length?this.fmt(Math.max(...vsP),pfUnit):'—',
+      statAvg:vsP.length?this.fmt(vsP.reduce((a,b)=>a+b,0)/vsP.length,pfUnit):'—',
+      statSpan:g?(((g.t1-g.t0)/1000).toFixed(1)+'s window'):'',
+      clearSamples:()=>this.setState({samples:[],holdSamples:[],plotHold:false}),
+      exportRecording:()=>this.exportRecordingCsv(),
+      showMiniTab:st.recording&&st.screen!=='plot',
+      goPlot:()=>this.setState({screen:'plot'}),
+      miniDot:armed?'#f2b34c':'#ff5c6a', miniLabel:armed?'ARMED':'REC',
+      miniLast:lastPt?this.fmt(lastPt.v,pfUnit):'waiting…',
+      miniPoints:gm?gm.points:'',
+      trigOn:st.trigOn,
+      trigToggle:()=>this.setState(x=>({trigOn:!x.trigOn,triggered:false})),
+      trigLabel:st.trigOn?'ON':'OFF',
+      trigBg:st.trigOn?'#3a3020':'#0e1218', trigColor:st.trigOn?'#f2b34c':'#7f8ea1',
+      setEdgeAbove:()=>this.setState({trigEdge:'above',triggered:false}),
+      setEdgeBelow:()=>this.setState({trigEdge:'below',triggered:false}),
+      edgeAboveBg:st.trigEdge==='above'?'#1d2634':'#0e1218', edgeAboveColor:st.trigEdge==='above'?'#dbe3ee':'#7f8ea1',
+      edgeBelowBg:st.trigEdge==='below'?'#1d2634':'#0e1218', edgeBelowColor:st.trigEdge==='below'?'#dbe3ee':'#7f8ea1',
+      trigLevel:st.trigLevel, setTrigLevel:e=>this.setState({trigLevel:e.target.value,triggered:false}),
+      trigUnit:pfUnit+' (base units)',
+      trigManual:!st.trigAuto, trigAutoOn:st.trigAuto,
+      autoToggle:()=>this.setState(x=>({trigAuto:!x.trigAuto,triggered:false})),
+      autoBg:st.trigAuto?'#16303f':'#0e1218', autoColor:st.trigAuto?'#53c8f0':'#7f8ea1',
+      autoBandText:(()=>{
+        const s=this.autoSpecFor(st.running?step.func:pf);
+        if(!s) return 'no matching test point for '+pf;
+        return 'band '+this.fmtLimits(s)+' · re-arms each point';
+      })(),
+      armedText:st.recording&&st.trigOn?(st.triggered?'● TRIGGERED':'◌ ARMED'):st.trigOn?'arm by starting REC':'',
+      armedColor:st.recording&&st.trigOn?(st.triggered?'#46e0a1':'#f2b34c'):'#7f8ea1',
+      visa:st.visa, setVisa:e=>this.setState({visa:e.target.value}),
+      connectToggle:()=>{
+        if(st.connected){
+          if(st.connMode==='live'&&this._ws){ this.wsSend({op:'close'}).catch(()=>{}); try{this._ws.close();}catch(e){} }
+          this.setState({connected:false,idn:''}); this.log('[VISA] Session closed'); return;
+        }
+        if(st.connecting) return;
+        if(st.connMode==='live'){ this.openBridge(); return; }
+        this.setState({connecting:true}); this.log('[VISA] Opening '+st.visa+' … (simulated)');
+        setTimeout(()=>{ this.setState({connecting:false,connected:true,idn:'*IDN? → RIGOL TECHNOLOGIES,DM3068,DM3O240800123,01.01.00.02.05\nNPLC 10 · input Z 10 GΩ · trigger IMM'}); this.log('[VISA] Connected (simulated)'); },800);
+      },
+      isLive:st.connMode==='live',
+      setSimMode:()=>{ if(st.connected){this.log('[SYS] Disconnect first');return;} this.setState({connMode:'sim'}); },
+      setLiveMode:()=>{ if(st.connected){this.log('[SYS] Disconnect first');return;} this.setState({connMode:'live'}); },
+      simBg:st.connMode==='sim'?'#1d2634':'transparent', simColor:st.connMode==='sim'?'#dbe3ee':'#7f8ea1',
+      liveBg:st.connMode==='live'?'#1d2634':'transparent', liveColor:st.connMode==='live'?'#dbe3ee':'#7f8ea1',
+      modeExplain:st.connMode==='sim'?'Simulated: realistic fake readings, instant capture — for training and trying flows. Probe mode applies to live runs only.':'Live: real SCPI to the DM3068 via the local bridge. Runs use probe mode: touch → hold → capture → lift.',
+      bridgeUrl:st.bridgeUrl, setBridgeUrl:e=>this.setState({bridgeUrl:e.target.value}),
+      connBtnLabel:st.connected?'Disconnect':st.connecting?'Connecting…':'Connect',
+      connBtnBg:st.connected?'#3a2026':'#164534', connBtnColor:st.connected?'#ff5c6a':'#46e0a1',
+      idnText:st.idn||'No active session.',
+    };
+  }
+}
+</script>
+</body>
+</html>
