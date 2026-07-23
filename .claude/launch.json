@@ -4,7 +4,7 @@
     {
       "name": "benchlink",
       "runtimeExecutable": "python",
-      "runtimeArgs": ["-m", "http.server", "8123", "--directory", "benchlink"],
+      "runtimeArgs": ["-m", "http.server", "8123"],
       "port": 8123
     }
   ]
