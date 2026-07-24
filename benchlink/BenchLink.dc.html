@@ -177,7 +177,7 @@ a{color:#53c8f0;text-decoration:none} a:hover{color:#7fd8f5}
             <div style="font-family:'IBM Plex Mono',monospace;color:#7f8ea1;font-size:12px">{{ s.num }}</div>
             <input value="{{ s.pin }}" onChange="{{ s.setPin }}" placeholder="TP8" style="background:#0e1218;border:1px solid #232b37;border-radius:6px;color:#dbe3ee;padding:7px 9px;font-family:'IBM Plex Mono',monospace;font-size:13px;width:100%;box-sizing:border-box"></input>
             <select value="{{ s.func }}" onChange="{{ s.setFunc }}" style="background:#0e1218;border:1px solid #232b37;border-radius:6px;color:#dbe3ee;padding:7px 6px;font-family:'IBM Plex Sans',sans-serif;font-size:13px;width:100%">
-              <option>Voltage DC</option><option>Voltage AC</option><option>Resistance 2W</option><option>Resistance 4W</option><option>Continuity</option><option>Diode</option><option>Capacitance</option><option>Current DC</option><option>Current AC</option><option>Frequency</option><option>Period</option><option>Temperature</option>
+              <option>Voltage DC</option><option>Voltage AC</option><option>Resistance 2W</option><option>Resistance 4W</option><option>Continuity</option><option>Diode</option><option>Capacitance</option><option>Current DC</option><option>Current AC</option><option>Frequency</option><option>Period</option>
             </select>
             <input value="{{ s.lowStr }}" onChange="{{ s.setLow }}" placeholder="min" style="background:#0e1218;border:1px solid #232b37;border-radius:6px;color:#dbe3ee;padding:7px 9px;font-family:'IBM Plex Mono',monospace;font-size:13px;width:100%;box-sizing:border-box"></input>
             <input value="{{ s.highStr }}" onChange="{{ s.setHigh }}" placeholder="— none" style="background:#0e1218;border:1px solid #232b37;border-radius:6px;color:#dbe3ee;padding:7px 9px;font-family:'IBM Plex Mono',monospace;font-size:13px;width:100%;box-sizing:border-box"></input>
@@ -496,7 +496,7 @@ a{color:#53c8f0;text-decoration:none} a:hover{color:#7fd8f5}
     </div>
     <div style="background:#12161d;border:1px solid #222b37;border-radius:10px;padding:16px">
       <div style="font-weight:700;margin-bottom:10px">Measurement quality</div>
-      <div style="font-size:11px;color:#7f8ea1;font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Integration time (NPLC)</div>
+      <div style="font-size:11px;color:#7f8ea1;font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Reading rate</div>
       <div style="display:flex;gap:6px;flex-wrap:wrap">
         <sc-for list="{{ nplcChips }}" as="n" hint-placeholder-count="4">
           <div onClick="{{ n.set }}" style="flex:1;min-width:66px;text-align:center;padding:8px 6px;border-radius:7px;cursor:pointer;border:1px solid #232b37;background:{{ n.bg }};color:{{ n.color }}">
@@ -572,12 +572,28 @@ class Component extends DCLogic {
   };
   FUNC = {'Voltage DC':':FUNC:VOLT:DC','Voltage AC':':FUNC:VOLT:AC','Resistance 2W':':FUNC:RES','Resistance 4W':':FUNC:FRES','Continuity':':FUNC:CONT','Diode':':FUNC:DIOD','Capacitance':':FUNC:CAP','Current DC':':FUNC:CURR:DC','Current AC':':FUNC:CURR:AC','Frequency':':FUNC:FREQ','Period':':FUNC:PER','Temperature':':FUNC:TEMP'};
   SCPI = {'Voltage DC':':MEAS:VOLT:DC?','Voltage AC':':MEAS:VOLT:AC?','Resistance 2W':':MEAS:RES?','Resistance 4W':':MEAS:FRES?','Continuity':':MEAS:CONT?','Diode':':MEAS:DIOD?','Capacitance':':MEAS:CAP?','Current DC':':MEAS:CURR:DC?','Current AC':':MEAS:CURR:AC?','Frequency':':MEAS:FREQ?','Period':':MEAS:PER?','Temperature':':MEAS:TEMP?'};
-  AUTORANGE = {'Voltage DC':':VOLT:DC:RANG:AUTO ON','Voltage AC':':VOLT:AC:RANG:AUTO ON','Resistance 2W':':RES:RANG:AUTO ON','Resistance 4W':':FRES:RANG:AUTO ON','Current DC':':CURR:DC:RANG:AUTO ON','Current AC':':CURR:AC:RANG:AUTO ON','Frequency':':FREQ:VOLT:RANG:AUTO ON','Capacitance':':CAP:RANG:AUTO ON'};
-  NPLC = {'Voltage DC':':VOLT:DC:NPLC','Current DC':':CURR:DC:NPLC','Resistance 2W':':RES:NPLC','Resistance 4W':':FRES:NPLC'};
+  // Autorange in the Rigol command set is one function-independent command.
+  // (The Agilent-style ':VOLT:DC:RANG:AUTO ON' is rejected with -113 by a
+  // DM3068 running CMDSET RIGOL — verified against the meter's error queue.)
+  AUTORANGE_CMD = ':MEASure AUTO';
+  // The Rigol command set has no NPLC; integration is the RATE subsystem,
+  // {F|M|S} = fast / medium / slow.
+  RATE = {'Voltage DC':':RATE:VOLTage:DC','Voltage AC':':RATE:VOLTage:AC','Current DC':':RATE:CURRent:DC','Current AC':':RATE:CURRent:AC','Resistance 2W':':RATE:RESistance','Resistance 4W':':RATE:FRESistance'};
+  // Closest analogue to auto-zero on this command set: the DC input filter.
+  FILTER = {'Voltage DC':':MEASure:VOLTage:DC:FILTer','Current DC':':MEASure:CURRent:DC:FILTer'};
   UNITS = {'Voltage DC':'V','Voltage AC':'V','Resistance 2W':'Ω','Resistance 4W':'Ω','Continuity':'Ω','Diode':'V','Capacitance':'F','Current DC':'A','Current AC':'A','Frequency':'Hz','Period':'s','Temperature':'°C'};
   SHORT = {'Voltage DC':'V','Voltage AC':'V~','Resistance 2W':'R','Resistance 4W':'R4','Continuity':'CONT','Diode':'D','Capacitance':'C','Current DC':'I','Current AC':'I~','Frequency':'F','Period':'T','Temperature':'°C'};
   PRE = {'Ω':[['mΩ',1e-3],['Ω',1],['kΩ',1e3],['MΩ',1e6]],'V':[['µV',1e-6],['mV',1e-3],['V',1]],'A':[['µA',1e-6],['mA',1e-3],['A',1]],'F':[['pF',1e-12],['nF',1e-9],['µF',1e-6],['mF',1e-3]],'Hz':[['Hz',1],['kHz',1e3],['MHz',1e6]],'s':[['µs',1e-6],['ms',1e-3],['s',1]],'°C':[['°C',1]]};
   PERSIST = ['boardName','steps','boardTypes','serials','results','statuses','history','visa','connMode','bridgeUrl','probeMode','holdSecUi','mode','plotName','trigOn','trigEdge','trigLevel','trigAuto','lastDone','nplc','autoZero','soundOn'];
+  // state.nplc holds the DM3068 rate code F/M/S. Older saved sessions stored
+  // an NPLC number (0.2/1/10/100), so fold those onto the nearest rate.
+  rateCode(){
+    const r=this.state.nplc;
+    if(r==='F'||r==='M'||r==='S') return r;
+    const n=parseFloat(r);
+    if(!isFinite(n)) return 'M';
+    return n<=0.2?'F':n<=1?'M':'S';
+  }
   prefixesFor(func){ return this.PRE[this.UNITS[func]]||[[this.UNITS[func],1]]; }
   multFor(func,label){ const p=this.prefixesFor(func).find(x=>x[0]===label); return p?p[1]:1; }
   defaultUnit(func){ const u=this.UNITS[func]; return u==='F'?'µF':u; }
@@ -785,14 +801,16 @@ class Component extends DCLogic {
     const now=Date.now();
     if(this._lastFunc!==f){
       await this.wsSend({op:'write',scpi:this.FUNC[f]});
-      if(this.AUTORANGE[f]) await this.wsSend({op:'write',scpi:this.AUTORANGE[f]});
-      if(this.NPLC[f]) await this.wsSend({op:'write',scpi:this.NPLC[f]+' '+(this.state.nplc ?? 1)});
-      if(['Voltage DC','Current DC','Resistance 2W','Resistance 4W'].includes(f))
-        await this.wsSend({op:'write',scpi:':ZERO:AUTO '+((this.state.autoZero ?? true)?'ON':'OFF')});
+      await this.wsSend({op:'write',scpi:this.AUTORANGE_CMD});
+      const rate=this.rateCode();
+      if(this.RATE[f]) await this.wsSend({op:'write',scpi:this.RATE[f]+' '+rate});
+      if(this.FILTER[f])
+        await this.wsSend({op:'write',scpi:this.FILTER[f]+' '+((this.state.autoZero ?? true)?'ON':'OFF')});
       this._lastFunc=f;
-      this._settleUntil=now+(this.props.funcSettleMs ?? 900)+(this.state.nplc ?? 1)*20;
+      // Slower integration needs longer to settle; S is the slow rate.
+      this._settleUntil=now+(this.props.funcSettleMs ?? 900)+(rate==='S'?600:rate==='M'?200:0);
       this._discard=3;
-      this.log('[SCPI] '+this.FUNC[f]+(this.AUTORANGE[f]?' + autorange':'')+(this.NPLC[f]?' + '+(this.state.nplc ?? 1)+' PLC':'')+' · settling…');
+      this.log('[SCPI] '+this.FUNC[f]+' + autorange'+(this.RATE[f]?' + rate '+rate:'')+' · settling…');
       return false;
     }
     if(now<this._settleUntil) return false;
@@ -1221,12 +1239,12 @@ class Component extends DCLogic {
       paretoRows, noPareto:!paretoRows.length,
       retestFailures:()=>this.retestFailures(),
       hasFailures:statuses.some(x=>x==='fail'), failBoardCount:statuses.filter(x=>x==='fail').length,
-      nplcChips:[{l:'Fast',v:0.2},{l:'Normal',v:1},{l:'Slow',v:10},{l:'Precision',v:100}].map(o=>({label:o.l,plc:o.v+' PLC',set:()=>this.setState({nplc:o.v}),bg:st.nplc===o.v?'#1d2634':'#0e1218',color:st.nplc===o.v?'#dbe3ee':'#7f8ea1'})),
+      nplcChips:[{l:'Fast',v:'F',d:'~123 rdg/s'},{l:'Medium',v:'M',d:'~20 rdg/s'},{l:'Slow',v:'S',d:'~2.5 rdg/s'}].map(o=>({label:o.l,plc:o.d,set:()=>this.setState({nplc:o.v}),bg:this.rateCode()===o.v?'#1d2634':'#0e1218',color:this.rateCode()===o.v?'#dbe3ee':'#7f8ea1'})),
       autoZeroToggle:()=>this.setState(x=>({autoZero:!x.autoZero})),
-      azBg:st.autoZero?'#164534':'#151b24', azColor:st.autoZero?'#46e0a1':'#7f8ea1', azLabel:st.autoZero?'Auto-zero ON':'Auto-zero OFF',
+      azBg:st.autoZero?'#164534':'#151b24', azColor:st.autoZero?'#46e0a1':'#7f8ea1', azLabel:st.autoZero?'DC filter ON':'DC filter OFF',
       soundToggle:()=>this.setState(x=>({soundOn:!x.soundOn})),
       sndBg:st.soundOn?'#164534':'#151b24', sndColor:st.soundOn?'#46e0a1':'#7f8ea1', sndLabel:st.soundOn?'Sound cue ON':'Sound cue OFF',
-      nplcNote:'NPLC applies to DCV, DCI and resistance. Higher PLC = slower reading, more digits, better mains-noise rejection.',
+      nplcNote:'Rate applies to DCV/ACV, DCI/ACI and resistance. Slower = fewer readings per second, more digits, better mains-noise rejection.',
       goBoard:()=>this.setState({screen:'board'}),
       isRun:st.screen==='run', isBoard:st.screen==='board', isBatch:st.screen==='batch',
       isResults:st.screen==='results', isPlot:st.screen==='plot', isHistory:st.screen==='history', isMeter:st.screen==='meter',
@@ -1292,7 +1310,7 @@ class Component extends DCLogic {
         {mark:st.connected?'✓':'○', color:st.connected?'#46e0a1':'#7f8ea1',
          textColor:st.connected?'#9fb0c3':'#dbe3ee',
          label:st.connected?('Meter connected ('+(st.connMode==='live'?'live':'simulated')+')'):'Connect the DM3068'+(st.connMode==='live'?' — start the bridge first':' (simulated mode)'),
-         go:()=>st.mode==='operator'&&!st.connected&&st.connMode==='sim'?this.setState({connecting:true},setTimeout(()=>{this.setState({connecting:false,connected:true,idn:'*IDN? → RIGOL TECHNOLOGIES,DM3068 (simulated)'});this.log('[VISA] Connected (simulated)');},600)):this.setState({screen:'meter',mode:'engineer'})},
+         go:()=>st.mode==='operator'&&!st.connected&&st.connMode==='sim'?this.setState({connecting:true},setTimeout(()=>{this.setState({connecting:false,connected:true,idn:'*IDN? → Rigol Technologies,DM3068 (simulated)'});this.log('[VISA] Connected (simulated)');},600)):this.setState({screen:'meter',mode:'engineer'})},
         {mark:st.steps.length?'✓':'○', color:st.steps.length?'#46e0a1':'#7f8ea1',
          textColor:'#9fb0c3',
          label:'"'+st.boardName+'" — '+st.steps.length+' test points',
@@ -1417,7 +1435,7 @@ class Component extends DCLogic {
         if(st.connecting) return;
         if(st.connMode==='live'){ this.openBridge(); return; }
         this.setState({connecting:true}); this.log('[VISA] Opening '+st.visa+' … (simulated)');
-        setTimeout(()=>{ this.setState({connecting:false,connected:true,idn:'*IDN? → RIGOL TECHNOLOGIES,DM3068,DM3O240800123,01.01.00.02.05\nNPLC 10 · input Z 10 GΩ · trigger IMM'}); this.log('[VISA] Connected (simulated)'); },800);
+        setTimeout(()=>{ this.setState({connecting:false,connected:true,idn:'*IDN? → Rigol Technologies,DM3068,DM3O240800123,01.01.00.01.10.00\nrate SLOW · input Z 10 MΩ · trigger IMM'}); this.log('[VISA] Connected (simulated)'); },800);
       },
       isLive:st.connMode==='live',
       setSimMode:()=>{ if(st.connected){this.log('[SYS] Disconnect first');return;} this.setState({connMode:'sim'}); },

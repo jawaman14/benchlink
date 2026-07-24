@@ -85,15 +85,44 @@ issues):
   every session.
 - **`*IDN?` verification** — warns if the opened device isn't a Rigol DM3068.
 
+- **pyusb fallback discovery** — pyvisa-py silently drops a USB device whose
+  string descriptors it cannot read, which happens to the DM3068 behind the
+  WinUSB driver: `list_resources()` comes back empty even though opening the
+  very same resource name works. The bridge falls back to finding the meter
+  over raw USB by VID/PID and building the resource name itself. The same
+  meter reported twice (pyvisa spells the ids in decimal, we use hex) is
+  deduplicated by (vid, pid, serial).
+- **Websocket keepalive** — a dead browser tab is dropped instead of holding
+  the meter session open forever.
+
 **Protocol** (JSON per message, `id` echoed back):
 
 | Send | Reply |
 |------|-------|
-| `{op:"list"}` | `{ok, data:{instruments:[…], all:[…]}}` |
+| `{op:"list"}` | `{ok, data:{instruments, all, usb, diagnostics, hint}}` |
 | `{op:"open", resource:"auto"}` | `{ok, data:"<*IDN? response>"}` |
 | `{op:"query", scpi:"…"}` | `{ok, data:"<response>"}` |
 | `{op:"write", scpi:"…"}` | `{ok}` |
+| `{op:"errors"}` | `{ok, data:[…]}` — drains the `SYST:ERR?` queue |
+| `{op:"null", scpi:"…", enable:true}` | `{ok, data:{offset, applied, state}}` |
+| `{op:"selftest"}` | `{ok, data:"0", passed:true}` — `*TST?`, takes ~19 s |
 | `{op:"close"}` | `{ok}` |
+
+### A note on the SCPI command set
+
+BenchLink pins the meter to `CMDSET RIGOL`, and the Rigol command set is **not**
+the Agilent one. Verified against a real DM3068 by reading `SYST:ERR?` after
+every command:
+
+| Purpose | Correct (Rigol) | Rejected with `-113` |
+|---------|-----------------|----------------------|
+| Autorange | `:MEASure AUTO` | `:VOLT:DC:RANG:AUTO ON` |
+| Integration | `:RATE:VOLTage:DC {F\|M\|S}` | `:VOLT:DC:NPLC <n>` |
+| DC filter | `:MEASure:VOLTage:DC:FILTer ON` | `:ZERO:AUTO ON` |
+
+Temperature is not available on this meter's Rigol command set (`:FUNC:TEMP`
+and `:MEASure:TEMPerature?` both return `-113`), so it is not offered as a
+measurement type.
 
 ## Rebuilding the standalone file
 
