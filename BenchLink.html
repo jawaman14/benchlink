@@ -2150,6 +2150,8 @@ a{color:#53c8f0;text-decoration:none} a:hover{color:#7fd8f5}
       </sc-if>
       <button onClick="{{ exportCsv }}" style="margin-top:14px;width:100%;padding:10px;border:1px solid #2a3a4d;border-radius:7px;background:#16202c;color:#53c8f0;font-weight:600;cursor:pointer;font-family:'IBM Plex Sans',sans-serif;white-space:nowrap">Export spreadsheet (CSV)</button>
       <div style="margin-top:8px;font-size:11px;color:#7f8ea1">One row per SN, one column per point in template units, criteria section appended.</div>
+      <button onClick="{{ exportIon }}" style="margin-top:10px;width:100%;padding:10px;border:1px solid #2a3a4d;border-radius:7px;background:#16202c;color:#53c8f0;font-weight:600;cursor:pointer;font-family:'IBM Plex Sans',sans-serif;white-space:nowrap">Export for ION Datagrid</button>
+      <div style="margin-top:8px;font-size:11px;color:#7f8ea1">Rectangular table for a First Resonance ION Datagrid step — one row per measurement with min/max/unit/result. Import via the Datagrid editor.</div>
       <sc-if value="{{ hasFailures }}" hint-placeholder-val="{{ false }}">
         <button onClick="{{ retestFailures }}" style="margin-top:10px;width:100%;padding:10px;border:1px solid #5a2730;border-radius:7px;background:#2a161b;color:#ff8f98;font-weight:600;cursor:pointer;font-family:'IBM Plex Sans',sans-serif">Retest {{ failBoardCount }} failed board(s)</button>
       </sc-if>
@@ -2924,6 +2926,35 @@ class Component extends DCLogic {
     this.download(st.boardName.replace(/\s+/g,'-')+'-results.csv',csv);
     this.log('[EXPORT] Results saved · '+N+' rows × '+L+' points');
   }
+  exportIonCsv(){
+    // Clean rectangular table for import into a First Resonance ION Datagrid
+    // step (Datagrid editor -> Import -> CSV/Excel). One row per measurement,
+    // a fixed column schema regardless of the template, and no trailing
+    // criteria block — so the ION datagrid columns only need configuring once
+    // and the file imports as a single rectangle. Min/Max/Unit/Result travel
+    // with each value since datagrid cells don't re-check limits themselves.
+    const st=this.state, N=this.devCount();
+    const esc=v=>{ const t=String(v); return /[",\n]/.test(t)?'"'+t.replace(/"/g,'""')+'"':t; };
+    const rows=[['Board','SN','Pin','Measurement','Value','Unit','Min','Max','Result','Notes']];
+    let n=0;
+    for(let i=0;i<N;i++){
+      const e=st.serials[i];
+      st.steps.forEach((s,j)=>{
+        const r=st.results[i+'-'+j];
+        if(!r) return;
+        const u=s.uLabel||this.defaultUnit(s.func), m=this.multFor(s.func,u);
+        const val=r.skip?'':this.cellVal(r.v,s);
+        const res=r.skip?'SKIP':(r.pass?'PASS':'FAIL');
+        const min=Number((s.low/m).toPrecision(6));
+        const max=s.high==null?'':Number((s.high/m).toPrecision(6));
+        rows.push([st.boardName,e.sn,s.pin,s.func,val,u,min,max,res,e.notes||'']);
+        n++;
+      });
+    }
+    const csv=rows.map(r=>r.map(esc).join(',')).join('\n')+'\n';
+    this.download(st.boardName.replace(/\s+/g,'-')+'-ion-datagrid.csv',csv);
+    this.log('[EXPORT] ION datagrid CSV · '+n+' measurement row(s)');
+  }
   exportTemplateCsv(){
     const st=this.state;
     let csv='point,measurement,min,max,unit\n';
@@ -3213,6 +3244,7 @@ class Component extends DCLogic {
       detailTitle:sel==null?'Detail':this.nameFor(sel)+' · measurements',
       detailRows,
       exportCsv:()=>this.exportCsv(),
+      exportIon:()=>this.exportIonCsv(),
       historyRows:st.history.map(h=>({time:h.time,summary:(h.board?h.board+' · ':'')+h.devices+' boards · '+h.dur+'s'+(h.live?' · live meter':' · simulated'),
         verdict:h.fails?h.fails+' FAIL':'ALL PASS', color:h.fails?'#ff5c6a':'#46e0a1'})),
       noHistory:!st.history.length, clearHistory:()=>this.setState({history:[]}),
