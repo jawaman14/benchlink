@@ -95,6 +95,15 @@ issues):
 - **Websocket keepalive** — a dead browser tab is dropped instead of holding
   the meter session open forever.
 
+App-side reliability:
+
+- **Error-queue safety net** — after each function change during a live run,
+  BenchLink drains `SYST:ERR?` and logs a `⚠` if the meter rejected any setup
+  command. SCPI mistakes can no longer fail silently (this is how the 14
+  wrong-command-set bugs below were found).
+- **Reset synchronization** — on connect it waits on `*OPC?` after `*RST` so
+  the first measurement can't race the meter's ~3 s reset.
+
 **Protocol** (JSON per message, `id` echoed back):
 
 | Send | Reply |

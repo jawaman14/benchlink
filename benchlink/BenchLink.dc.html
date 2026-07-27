@@ -808,6 +808,7 @@ class Component extends DCLogic {
       if(this.RATE[f]) await this.wsSend({op:'write',scpi:this.RATE[f]+' '+rate});
       if(this.FILTER[f])
         await this.wsSend({op:'write',scpi:this.FILTER[f]+' '+((this.state.autoZero ?? true)?'ON':'OFF')});
+      try{ const errs=await this.wsSend({op:'errors'}); if(errs&&errs.length) this.log('[SCPI] ⚠ meter rejected setup for '+f+': '+errs.join(' | ')); }catch(e){}
       this._lastFunc=f;
       // Slower integration needs longer to settle; S is the slow rate.
       this._settleUntil=now+(this.props.funcSettleMs ?? 900)+(rate==='S'?600:rate==='M'?200:0);
@@ -963,12 +964,12 @@ class Component extends DCLogic {
       this.recordSample(this._monBase[f]*(1+(Math.random()-0.5)*0.004),f);
     }
   }
-  wsSend(msg){
+  wsSend(msg,timeoutMs){
     return new Promise((res,rej)=>{
       if(!this._ws||this._ws.readyState!==1) return rej(new Error('bridge not connected'));
       this._mid=(this._mid||0)+1; const id=this._mid; msg.id=id;
       this._pend=this._pend||{};
-      const to=setTimeout(()=>{ delete this._pend[id]; rej(new Error('bridge timeout')); },5000);
+      const to=setTimeout(()=>{ delete this._pend[id]; rej(new Error('bridge timeout')); },timeoutMs||10000);
       this._pend[id]={res,rej,to};
       this._ws.send(JSON.stringify(msg));
     });
@@ -985,7 +986,10 @@ class Component extends DCLogic {
       try{
         const idn=await this.wsSend({op:'open',resource:this.state.visa});
         this._lastFunc=null;
-        this.wsSend({op:'write',scpi:'*RST;*CLS'}).catch(()=>{});
+        await this.wsSend({op:'write',scpi:'*RST;*CLS'}).catch(()=>{});
+        // *RST takes ~3 s on the DM3068; wait for it to finish with *OPC? so
+        // the first measurement doesn't race the reset (needs the >5 s wsSend timeout).
+        try{ await this.wsSend({op:'query',scpi:'*OPC?'},12000); }catch(e){}
         this.setState({connecting:false,connected:true,idn:'*IDN? → '+idn});
         this.log('[VISA] Connected · '+idn+' · meter reset');
       }catch(e){ this.setState({connecting:false}); this.log('[VISA] Open failed: '+e.message); try{ws.close();}catch(e2){} }
